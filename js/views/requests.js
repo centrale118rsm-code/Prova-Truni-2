@@ -27,7 +27,7 @@ export function requests(el, params, ctx) {
   if (!me) { el.innerHTML = `<div class="page"><div class="empty">${ic('person_search')}Scegli prima chi sei (menu in basso a sinistra).</div></div>`; return; }
   let tab = 'mie';
   const draw = () => {
-    const all = Object.values(store.requests).sort((a, b) => b.ts - a.ts);
+    const all = Object.values(store.requests).filter(r => r.type !== 'offerta').sort((a, b) => b.ts - a.ts);
     const mine = all.filter(r => r.op === me);
     const forMe = all.filter(r => r.peer === me && r.op !== me);
     const toAnswer = forMe.filter(r => r.status === 'collega').length;
@@ -198,7 +198,7 @@ async function approve(r) {
 export function manage(el, params, ctx) {
   let tab = 'attesa', q = '';
   const draw = () => {
-    const all = Object.values(store.requests).sort((a, b) => b.ts - a.ts);
+    const all = Object.values(store.requests).filter(r => r.type !== 'offerta').sort((a, b) => b.ts - a.ts);
     const list = all.filter(r => (tab === 'tutte' || r.status === tab) && (!q || store.opName(r.op).toLowerCase().includes(q) || (TYPES[r.type] || {}).label.toLowerCase().includes(q)));
     const n = s => all.filter(r => r.status === s).length;
     el.innerHTML = `<div class="page"><div class="page-h"><div><h2>Richieste da gestire</h2><p>Approva o rifiuta: le richieste approvate vengono scritte sul calendario e notificate agli interessati.</p></div><div class="acts"><input class="inp" id="rq-q" placeholder="Cerca operatore o tipo" value="${esc(q)}" style="width:220px"></div></div>

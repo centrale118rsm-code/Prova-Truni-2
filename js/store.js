@@ -67,8 +67,23 @@ class FirebaseAdapter {
     this.app = fb.apps.find(a => a.name === 'gt2') || fb.initializeApp(this.cfg, 'gt2');
     this.db = this.app.firestore();
     try { await this.db.enablePersistence({ synchronizeTabs: true }); } catch (e) { }
-    await this.app.auth().signInAnonymously();
+    const auth = this.app.auth();
+    // arrivo da un link di accesso via email: si completa l'accesso verificato
+    try {
+      if (auth.isSignInWithEmailLink(location.href)) {
+        const email = LS.get('gt2:linkEmail') || window.prompt('Conferma la tua email per completare l’accesso');
+        if (email) { await auth.signInWithEmailLink(email, location.href); LS.del('gt2:linkEmail'); history.replaceState(null, '', location.pathname + location.search.replace(/[?&](apiKey|oobCode|mode|lang)=[^&]*/g, '') + location.hash); }
+      }
+    } catch (e) { console.warn('Link di accesso non valido', e); }
+    const user = await new Promise(r => { const off = auth.onAuthStateChanged(u => { off(); r(u); }); });
+    if (!user) await auth.signInAnonymously();
+    this.email = (auth.currentUser && auth.currentUser.email || '').toLowerCase() || null;
   }
+  async sendLink(email) {
+    await this.app.auth().sendSignInLinkToEmail(email, { url: location.href.split('#')[0], handleCodeInApp: true });
+    LS.set('gt2:linkEmail', email);
+  }
+  async signOutEmail() { await this.app.auth().signOut(); await this.app.auth().signInAnonymously(); this.email = null; }
   d(name) { return this.db.collection(this.ns + '_data').doc(name); }
   c(coll) { return this.db.collection(this.ns + '_' + coll); }
   async getDoc(name) { const s = await this.d(name).get(); return s.exists ? s.data() : null; }
@@ -136,8 +151,14 @@ export const store = {
     try { const r = await fetch('data/cloud.json', { cache: 'no-store' }); if (r.ok) shared = await r.json(); } catch (e) { }
     const cloud = (local && local.enabled !== undefined) ? local : shared;
     this.cloudCfg = cloud;
-    this.profile = PROFILES[(cloud && cloud.profile) || LS.get('gt2:profile') || 'autisti'] || PROFILES.autisti;
-    this.ns = (cloud && cloud.ns) || (this.profile.key === 'autisti' ? 'gt2' : 'gt2inf');
+    // profilo: link con ?p=infermieri  >  ultima scelta su questo dispositivo  >  predefinito del cloud
+    const qp = new URLSearchParams(location.search).get('p');
+    if (qp && PROFILES[qp]) LS.set('gt2:profile', qp);
+    this.profile = PROFILES[LS.get('gt2:profile') || (cloud && cloud.profile) || 'autisti'] || PROFILES.autisti;
+    document.documentElement.dataset.profile = this.profile.key;
+    // ogni profilo ha il suo archivio (in cloud: <prefisso> per gli autisti, <prefisso>inf per gli infermieri)
+    const base = (cloud && cloud.ns) || 'gt2';
+    this.ns = this.profile.key === 'autisti' ? base : base + 'inf';
     if (cloud && cloud.enabled && cloud.firebase) {
       try { this.adapter = new FirebaseAdapter(this.ns, cloud.firebase); await this.adapter.init(); }
       catch (e) { console.error('Cloud non raggiungibile, uso l’archivio locale', e); this.cloudError = String(e.message || e); this.adapter = new LocalAdapter(this.ns); }
@@ -227,13 +248,28 @@ export const store = {
   },
 
   // ── Ruoli ──
+  // Accesso alla gestione: il gettone vale finché non scade (12 ore, o 30 giorni con "ricorda")
+  // e solo se la password non è stata cambiata nel frattempo.
   restoreRole() {
     const tok = LS.get(`${this.ns}:auth`);
-    if (tok && tok.role === 'admin' && tok.h && tok.h === this.config.adminHash) this.role = 'admin';
-    else if (tok && tok.role === 'coord' && tok.h && (tok.h === this.config.coordHash || tok.h === this.config.adminHash)) this.role = 'coord';
-    else this.role = this.me ? 'operator' : 'guest';
+    const fp = h => String(h || '').slice(-24);
+    // accesso verificato dal server (cloud): l'email del coordinatore decide il ruolo
+    const em = this.adapter && this.adapter.email; const mg = em && (this.config.managers || []).find(x => x.email === em);
+    if (mg) { this.role = mg.role === 'admin' ? 'admin' : 'coord'; return; }
+    const valid = tok && tok.h && (!tok.exp || tok.exp > Date.now());
+    if (valid && tok.role === 'admin' && tok.h === fp(this.config.adminHash)) this.role = 'admin';
+    else if (valid && tok.role === 'coord' && (tok.h === fp(this.config.coordHash) || tok.h === fp(this.config.adminHash))) this.role = 'coord';
+    else { if (tok && !valid) LS.del(`${this.ns}:auth`); this.role = this.me ? 'operator' : 'guest'; }
   },
-  setAuth(role, h) { if (role) LS.set(`${this.ns}:auth`, { role, h }); else LS.del(`${this.ns}:auth`); this.restoreRole(); this.emit('role'); },
+  setAuth(role, stored, keep = false) {
+    if (role) LS.set(`${this.ns}:auth`, { role, h: String(stored || '').slice(-24), exp: Date.now() + (keep ? 30 * 864e5 : 12 * 3600e3), keep });
+    else LS.del(`${this.ns}:auth`);
+    this.restoreRole(); this.emit('role');
+  },
+  // tentativi sbagliati: dopo 5 errori si aspetta, e l'attesa raddoppia
+  lockState() { return LS.get(`${this.ns}:lock`) || { fails: 0, until: 0 }; },
+  noteFail() { const l = this.lockState(); l.fails++; if (l.fails >= 5) l.until = Date.now() + 60e3 * Math.pow(2, Math.min(6, l.fails - 5)); LS.set(`${this.ns}:lock`, l); return l; },
+  clearFails() { LS.del(`${this.ns}:lock`); },
   isManager() { return this.role === 'admin' || this.role === 'coord'; },
   setMe(id) { this.me = id; if (id) LS.set(`${this.ns}:me`, id); else LS.del(`${this.ns}:me`); if (!this.isManager()) this.role = id ? 'operator' : 'guest'; this.emit('me'); },
   whoName() {
@@ -426,6 +462,13 @@ export const store = {
 
   setCloud(cfg) { if (cfg) LS.set('gt2:cloud', cfg); else LS.del('gt2:cloud'); },
   setProfile(key) { LS.set('gt2:profile', key); },
+  // passa da autisti a infermieri (e viceversa): stessa app, archivio separato, si ricarica la pagina
+  switchProfile(key) {
+    if (!PROFILES[key] || key === this.profile.key) return;
+    LS.set('gt2:profile', key);
+    const u = new URL(location.href); u.searchParams.set('p', key); u.hash = '';
+    location.replace(u.toString());
+  },
   lsGet: LS.get, lsSet: LS.set
 };
 

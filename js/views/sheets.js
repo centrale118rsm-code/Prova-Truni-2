@@ -5,7 +5,7 @@
 import { store } from '../store.js';
 import { esc, MONTHS, WD, WD_LONG, today, addDays, fmtDate, fmtShort, hm, monthDays, dow, yearOf, monthIdx, rangeDays, contrast } from '../util.js';
 import { ic, modal, chipFor, opChip, avatar, cap1, shiftStyle, absStyle } from '../ui.js';
-import { shiftInfo, absInfo, repOf, repBands, coverage, covStyle, workedMin, hasRep, validate } from '../calc.js';
+import { shiftInfo, absInfo, repOf, repBands, coverage, covStyle, workedMin, hasRep, validate, isSmontoCode } from '../calc.js';
 import { COVERAGE } from '../profile.js';
 import { monthGrid } from './me.js';
 
@@ -22,7 +22,7 @@ function groupsOf(d) {
     if (cnt.includes('tm')) g.M.push({ o, c }); else if (cnt.includes('dm')) g.mat.push({ o, c });
     if (cnt.includes('tp')) g.P.push({ o, c }); else if (cnt.includes('dp')) g.pom.push({ o, c });
     if (cnt.includes('tn')) g.N.push({ o, c });
-    if (c.s.trim() === 'SM') g.SM.push({ o, c });
+    if (isSmontoCode(c.s)) g.SM.push({ o, c });
     if (s.group === 'R') g.R.push({ o, c });
     if (s.group === 'X') g.altro.push({ o, c });
   }

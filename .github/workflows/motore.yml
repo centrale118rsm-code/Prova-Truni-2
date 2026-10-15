@@ -1,0 +1,51 @@
+# Motore: ogni 15 minuti aggiorna i calendari in abbonamento (cartella cal/) e manda le notifiche push.
+# Lavora SOLO quando il cloud è collegato (data/cloud.json con "enabled": true); altrimenti si ferma subito.
+# Per le notifiche serve il secret VAPID_PRIVATE (Settings › Secrets and variables › Actions)
+# e la chiave pubblica "vapidPublicKey" in data/cloud.json.
+name: Motore calendari e notifiche
+
+on:
+  schedule:
+    - cron: '4,19,34,49 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: motore
+  cancel-in-progress: false
+
+jobs:
+  motore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cloud collegato?
+        id: cloud
+        run: |
+          if node -e "const c=require('./data/cloud.json'); process.exit(c.enabled && c.firebase ? 0 : 1)"; then echo "on=1" >> "$GITHUB_OUTPUT"; else echo "Cloud non collegato: niente da fare"; fi
+      - uses: actions/setup-node@v4
+        if: steps.cloud.outputs.on == '1'
+        with:
+          node-version: 20
+      - name: Librerie
+        if: steps.cloud.outputs.on == '1'
+        run: npm install --prefix .github/motore --no-audit --no-fund && npx --prefix .github/motore playwright install --with-deps chromium
+      - name: Calendari e notifiche
+        if: steps.cloud.outputs.on == '1'
+        run: node .github/motore/motore.mjs
+        env:
+          APP_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+          VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
+      - name: Salva se cambiato
+        if: steps.cloud.outputs.on == '1'
+        run: |
+          git config user.name "motore-turni"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cal push
+          if git diff --cached --quiet; then echo "niente da salvare"; exit 0; fi
+          git commit -m "Motore: calendari e stato notifiche aggiornati"
+          for i in 1 2 3; do git pull --rebase -q && git push -q && exit 0; sleep 5; done
+          exit 1

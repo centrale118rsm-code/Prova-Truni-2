@@ -8,14 +8,16 @@
 import { store } from '../store.js';
 import { esc, MONTHS, WD, monthDays, today, dow, ym, addDays, fmtDate, hm, parseHM, contrast, uid, yearOf, monthIdx, vibrate } from '../util.js';
 import { $, $$, ic, modal, toast, popover, confirmBox, promptBox, shiftStyle, absStyle, chipFor, opChip, cap1 } from '../ui.js';
-import { shiftInfo, absInfo, shiftList, absList, coverage, covStyle, repOf, repIsOverride, repDefault, yearStats, suggestedCredit, describe, workedMin, creditMin, repBands, isRest, lineColor, validate } from '../calc.js';
+import { shiftInfo, absInfo, shiftList, absList, coverage, covStyle, repOf, repIsOverride, repDefault, yearStats, suggestedCredit, describe, workedMin, creditMin, repBands, isRest, lineColor, validate, coverageWant, isSmontoCode } from '../calc.js';
 import { COVERAGE, AVAILABILITY } from '../profile.js';
 
 const REP_HEAD = ['#0066FF', '#00B0F0', '#00B0F0', '#0070C0'];
 const REP_SHORT = id => { const o = store.op(id); if (!o) return ''; const s = o.surname; return s.length > 9 ? s.slice(0, 8) + '.' : s; };
 
 // stato dell'interfaccia (persistente per sessione)
-const ui = Object.assign({ compact: false, cov: true, rep: true, mine: false, hide: {}, legend: false, avail: false }, JSON.parse(sessionStorage.getItem('gt2:calui') || '{}'));
+// Modalità leggera: attiva da sola sui dispositivi poco potenti (poca memoria o pochi processori su schermo piccolo)
+const lowEnd = (navigator.deviceMemory && navigator.deviceMemory <= 2) || ((navigator.hardwareConcurrency || 8) <= 4 && innerWidth < 700);
+const ui = Object.assign({ compact: innerWidth < 700, cov: innerWidth >= 700, rep: true, mine: false, hide: {}, legend: false, avail: false, lite: !!lowEnd }, JSON.parse(sessionStorage.getItem('gt2:calui') || '{}'));
 const saveUI = () => sessionStorage.setItem('gt2:calui', JSON.stringify(ui));
 
 // ── Viste esportate ──
@@ -101,7 +103,7 @@ function mount(el, params, ctx, edit) {
     if (ui.cov) for (const c of COVERAGE) { const v = cov[c.key] || 0; const st = covStyle(c.key, v, cov); h += `<td class="c-cv" style="background:${st.bg};color:${st.fg}">${v}</td>`; }
     // doppioni tra i turnisti (come la formattazione condizionale del foglio)
     const cnt = {};
-    for (const o of store.ops()) { const c = store.cell(o.id, d); if (c && c.s) { const k = c.s.trim(); if (!['R', 'ripo', 'pome', 'matt', 'SM', '/R'].includes(k) && shiftInfo(k).group === 'T') cnt[k] = (cnt[k] || 0) + 1; } }
+    if (coverageWant().tm === 1) for (const o of store.ops()) { const c = store.cell(o.id, d); if (c && c.s) { const k = c.s.trim(); if (k !== 'R' && !isSmontoCode(k) && shiftInfo(k).group === 'T') cnt[k] = (cnt[k] || 0) + 1; } }
     ops.forEach((o, i) => {
       const c = store.cell(o.id, d); const key = o.id + '|' + d;
       const pend = store.editing && key in store.pending;
@@ -145,8 +147,16 @@ function mount(el, params, ctx, edit) {
     markSel();
   }
   let fillTimer = null;
+  let io = null;
   function fillRest() {
     clearTimeout(fillTimer);
+    if (io) { io.disconnect(); io = null; }
+    if (ui.lite) {
+      // si disegna un mese solo quando sta per entrare nello schermo
+      io = new IntersectionObserver(ents => { for (const e of ents) if (e.isIntersecting) { const tb = e.target.closest('tbody'); if (tb && tb.querySelector('tr.ph')) { io.unobserve(e.target); tb.innerHTML = monthBody(+tb.dataset.mi); } } }, { root: sc, rootMargin: '400px 0px' });
+      tbl.querySelectorAll('tr.ph').forEach(r => io.observe(r));
+      return;
+    }
     const todo = months.map((_, i) => i).filter(i => Math.abs(i - focusMonth) > 1).sort((a, b) => Math.abs(a - focusMonth) - Math.abs(b - focusMonth));
     const step = () => {
       const i = todo.shift(); if (i == null) return;
@@ -212,7 +222,7 @@ function mount(el, params, ctx, edit) {
   }
   function viewMenu(a) {
     const t = (k, lb, icon) => ({ icon, label: lb, right: ui[k] ? ic('check') : '', run: () => { ui[k] = !ui[k]; saveUI(); render(); jump(focusMonth); } });
-    popover(a, [t('compact', 'Vista compatta', 'view_compact'), t('cov', 'Contatori di copertura', 'functions'), t('rep', 'Colonne reperibilità', 'phone_in_talk'), t('avail', 'Disponibilità degli operatori', 'event_available'), ...(store.me ? [t('mine', 'Evidenzia i miei turni', 'person_pin')] : [])]);
+    popover(a, [t('lite', 'Modalità leggera (telefoni lenti)', 'speed'), t('compact', 'Vista compatta', 'view_compact'), t('cov', 'Contatori di copertura', 'functions'), t('rep', 'Colonne reperibilità', 'phone_in_talk'), t('avail', 'Disponibilità degli operatori', 'event_available'), ...(store.me ? [t('mine', 'Evidenzia i miei turni', 'person_pin')] : [])]);
   }
 
   // ── clic sulle caselle ──
@@ -240,7 +250,7 @@ function mount(el, params, ctx, edit) {
       body: `<div class="col">${fest ? `<div class="pill info">${ic('celebration')}${esc(store.config.festNames[d] || 'Giorno festivo')}</div>` : ''}
       <div class="row wrap">${COVERAGE.map(c => { const st = covStyle(c.key, cov[c.key] || 0, cov); return `<span class="pill" style="background:${st.bg};color:${st.fg === st.bg ? '#000' : st.fg}">${c.label}: ${cov[c.key] || 0}</span>`; }).join('')}</div>
       <div class="card"><table class="tbl"><thead><tr><th>Operatore</th><th>Turno</th><th>Orario</th><th class="r">Ore</th></tr></thead><tbody>
-      ${store.ops().map(o => { const c = store.cell(o.id, d); const s = c && c.s ? shiftInfo(c.s) : null; return `<tr><td>${opChip(o.id, { full: true })}</td><td>${chipFor(c, d)}${c && c.mk ? ` <span class="pill ${c.mk === 'serv' ? 'err' : 'acc'}">${c.mk === 'serv' ? 'esigenza di servizio' : 'richiesta personale'}</span>` : ''}${c && c.n ? `<div class="small muted">${esc(c.n)}</div>` : ''}</td><td class="small">${s && s.from ? s.from + '–' + s.to : ''}</td><td class="r num">${hm(workedMin(c) + creditMin(c))}</td></tr>`; }).join('')}
+      ${store.ops().map(o => { const c = store.cell(o.id, d); const s = c && c.s ? shiftInfo(c.s) : null; return `<tr><td>${opChip(o.id, { full: true })}</td><td>${chipFor(c, d)}${c && c.mk ? ` <span class="pill ${c.mk === 'serv' ? 'err' : 'acc'}">${c.mk === 'serv' ? 'esigenza di servizio' : 'richiesta personale'}</span>` : ''}${c && c.n ? `<div class="small muted">${esc(c.n)}</div>` : ''}</td><td class="small">${s && s.from ? s.from + '–' + s.to : ''}</td><td class="r num">${hm(workedMin(c) + creditMin(c, d))}</td></tr>`; }).join('')}
       </tbody></table></div>
       <div class="sec-t" style="margin-top:6px">Reperibilità</div>
       <div class="grid g4">${bands.map((b, i) => `<div class="card kpi"><span class="k-l">${b.label}</span><span style="font-weight:700">${r[i] ? opChip(r[i], { full: true }) : '<span class="muted">—</span>'}</span>${repIsOverride(d, i) ? '<span class="pill warn" style="width:max-content">ceduta</span>' : ''}</div>`).join('')}</div></div>`
@@ -254,7 +264,7 @@ function mount(el, params, ctx, edit) {
       <div style="font-size:16px">${chipFor(c, d, { big: true })}</div>
       <div>${esc(describe(c))}</div>
       ${s && s.group === 'T' ? `<div class="small muted">Linea del ciclo: <b style="color:${lineColor(c.s, d)}">●</b></div>` : ''}
-      <div class="grid g2"><div class="card kpi"><span class="k-l">Ore lavorate</span><span class="k-v">${hm(workedMin(c))}</span></div><div class="card kpi"><span class="k-l">Ore accreditate</span><span class="k-v">${hm(creditMin(c))}</span></div></div>
+      <div class="grid g2"><div class="card kpi"><span class="k-l">Ore lavorate</span><span class="k-v">${hm(workedMin(c))}</span></div><div class="card kpi"><span class="k-l">Ore accreditate</span><span class="k-v">${hm(creditMin(c, d))}</span></div></div>
       ${c && c.mk ? `<div class="note ${c.mk === 'serv' ? 'err' : ''}">${ic(c.mk === 'serv' ? 'priority_high' : 'person')}<div>${c.mk === 'serv' ? 'Cambio per <b>esigenze di servizio</b>' : 'Cambio per <b>richiesta personale</b>'}</div></div>` : ''}
       ${c && c.n ? `<div class="note">${ic('sticky_note_2')}<div>${esc(c.n)}</div></div>` : ''}
       ${op === store.me ? `<button class="btn" data-req>${ic('assignment_add')}Fai una richiesta per questo giorno</button>` : ''}</div>`
@@ -528,5 +538,5 @@ function mount(el, params, ctx, edit) {
 
   render(); renderLegend();
   requestAnimationFrame(() => { if (params.d) jumpDate(params.d); else jump(focusMonth); });
-  return () => { off(); clearTimeout(fillTimer); if (typeof cleanupEdit === 'function') cleanupEdit(); if (edit) store.stopEdit(); };
+  return () => { off(); clearTimeout(fillTimer); if (io) io.disconnect(); if (typeof cleanupEdit === 'function') cleanupEdit(); if (edit) store.stopEdit(); };
 }

@@ -108,7 +108,7 @@ export function shiftStyle(c, date, ctx = {}) {
   const code = c.s.trim(); const s = shiftInfo(code);
   if (ctx.dup) return { bg: '#FF0000', fg: '#FFFF00', b: 1 };
   if (code === 'R') return { bg: '#99FFCC', fg: '#008000', b: 1 };
-  if (/ripo/i.test(code)) return { bg: '#00FFCC', fg: '#000', b: 1 };
+  if (/ripo/i.test(code) || (s && s.group === 'R')) return { bg: '#00FFCC', fg: '#000', b: 1 };
   if (ctx.needsFail) return { bg: '#FF0000', fg: '#fff', b: 1 };
   if (code === 'mat8/R') return { bg: '#CC00FF', fg: '#fff', b: 1 };
   if (code.includes('/R')) return { bg: '#FFCCFF', fg: '#9C0006', b: 1 };

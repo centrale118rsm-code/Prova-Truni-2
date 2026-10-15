@@ -1,21 +1,21 @@
 rules_version = '2';
 
 // Regole per il progetto Firebase DEDICATO al nuovo gestionale turni (non usare i progetti
-// delle app in produzione). Tutti i dispositivi entrano con l'accesso anonimo di Firebase;
+// delle app in produzione). Versione BASE: tutti i dispositivi entrano con l'accesso anonimo;
 // le regole impediscono soprattutto i danni irreparabili (cancellazioni, documenti estranei).
+// Per l'accesso dei coordinatori verificato dal server usa firestore-sicure.rules.
 // Prefisso delle collezioni: "gt2" (autisti) e "gt2inf" (infermieri).
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
-    function ns(c) { return c.matches('^gt2(inf)?_(data|requests|log|notif|sess|snap)$'); }
+    function ns(c) { return c.matches('^gt2(inf)?_(data|requests|log|notif|sess|snap|push)$'); }
 
-    // config, mesi dei turni (m_AAAA-MM), agende personali
     match /{coll}/{doc} {
       allow read: if signedIn() && ns(coll);
       allow create, update: if signedIn() && ns(coll)
         && (!coll.matches('.*_data$') || doc.matches('^(config|m_[0-9]{4}-[0-9]{2}|agenda_[A-Za-z0-9_-]+)$'));
-      // si cancellano solo richieste, notifiche e copie di sicurezza; mai i turni né la configurazione
-      allow delete: if signedIn() && coll.matches('^gt2(inf)?_(requests|notif|snap)$');
+      // si cancellano solo richieste, notifiche, iscrizioni push e copie; mai turni né configurazione
+      allow delete: if signedIn() && coll.matches('^gt2(inf)?_(requests|notif|snap|push)$');
     }
   }
 }

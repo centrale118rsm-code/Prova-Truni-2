@@ -83,29 +83,59 @@ export const AVAILABILITY = [
   { code: 'g',  label: 'Preferenza / impegno',  bg: '#FFCCFF', fg: '#4a004a' }
 ];
 
+// Turni degli infermieri (file infermieri.xlsx): stesse ore degli autisti, codici di una lettera,
+// stesso ciclo P → M → N → S → R; squadre da 3 per fascia.
+export const INF_SHIFTS = [
+  { code: 'M',     label: 'Mattina',                    group: 'T', min: 405, from: '06:30', to: '13:15', pos: 1, cnt: ['tm'] },
+  { code: 'M/R',   label: 'Mattina + reperibilità',     group: 'T', min: 405, from: '06:30', to: '13:15', pos: 1, cnt: ['tm'], rep: true },
+  { code: 'P',     label: 'Pomeriggio',                 group: 'T', min: 445, from: '12:45', to: '20:10', pos: 0, cnt: ['tp'] },
+  { code: 'N',     label: 'Notte',                      group: 'T', min: 255, from: '19:45', to: '24:00', pos: 2, cnt: ['tn'] },
+  { code: 'S',     label: 'Smonto notte',               group: 'T', min: 440, from: '00:00', to: '07:20', pos: 3, cnt: [] },
+  { code: 'R',     label: 'Riposo',                     group: 'R', min: 0,   pos: 4, cnt: [] },
+  { code: 'M+N',   label: 'Mattina + notte',            group: 'T', min: 660, from: '06:30', to: '24:00', pos: 1, cnt: ['tm', 'tn'] },
+  { code: 'm',     label: 'Mattina diurno',             group: 'D', min: 432, from: '06:30', to: '13:42', cnt: ['dm'] },
+  { code: 'm/R',   label: 'Mattina diurno + reperibilità', group: 'D', min: 432, from: '06:30', to: '13:42', cnt: ['dm'], rep: true },
+  { code: 'p',     label: 'Pomeriggio diurno',          group: 'D', min: 432, from: '13:15', to: '20:27', cnt: ['dp'] },
+  { code: 'p/R',   label: 'Pomeriggio diurno + reperibilità', group: 'D', min: 432, from: '13:15', to: '20:27', cnt: ['dp'], rep: true },
+  { code: 'r',     label: 'Riposo diurno',              group: 'R', min: 0,   cnt: ['rip'] },
+  { code: '/R',    label: 'Solo reperibilità',          group: 'X', min: 0,   cnt: [], rep: true }
+];
+export const INF_ABSENCES = DEFAULT_ABSENCES.concat([
+  { code: 'gr', label: 'Gravidanza / maternità',      bg: '#F9A8D4', fg: '#701a43', kind: 'altro' },
+  { code: 'Z',  label: 'Sostituzione coordinatore',   bg: '#334155', fg: '#ffffff', kind: 'altro' }
+]);
+
 export const PROFILES = {
   autisti: {
-    key: 'autisti',
+    key: 'autisti', short: 'Autisti', icon: 'airport_shuttle', accent: '#c8102e',
     title: 'Turni Autisti Soccorritori',
     unit: 'U.O.C. Pronto Soccorso e Degenza Breve',
     entity: 'Istituto per la Sicurezza Sociale — Repubblica di San Marino',
     repTitle: 'Quadro reperibilità autisti soccorritori',
     roleOne: 'autista', roleMany: 'autisti',
-    seed: 'data/seed-autisti-2026.json',
+    seed: 'data/seed-autisti-2026.json', ns: 'gt2',
+    shifts: DEFAULT_SHIFTS, absences: DEFAULT_ABSENCES,
+    coverageWant: { tm: 1, tp: 1, tn: 1 },
+    // assenza: si accreditano le ore del turno teorico della linea (come nel file Excel)
+    creditMode: 'line',
     weeklyMin: 36 * 60,
     contractDayMin: 432,
     defaults: { ferie: 31, permOre: 14, permGg: 6 }
   },
   infermieri: {
-    key: 'infermieri',
+    key: 'infermieri', short: 'Infermieri', icon: 'medical_services', accent: '#0e7490',
     title: 'Turni Infermieri',
     unit: 'U.O.C. Pronto Soccorso e Degenza Breve',
     entity: 'Istituto per la Sicurezza Sociale — Repubblica di San Marino',
     repTitle: 'Quadro reperibilità infermieri',
     roleOne: 'infermiere', roleMany: 'infermieri',
-    seed: null,
+    seed: 'data/seed-infermieri-2026.json', ns: 'gt2inf',
+    shifts: INF_SHIFTS, absences: INF_ABSENCES,
+    coverageWant: { tm: 3, tp: 3, tn: 3 },
+    // assenza giustificata: ore settimanali ÷ 6 dal lunedì al sabato, la domenica 0 (programma infermieri)
+    creditMode: 'six',
     weeklyMin: 36 * 60,
-    contractDayMin: 432,
+    contractDayMin: 360,
     defaults: { ferie: 31, permOre: 14, permGg: 6 }
   }
 };

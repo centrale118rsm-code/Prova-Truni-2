@@ -3,9 +3,10 @@
 // "Chi sei?", accesso coordinatore/amministratore, notifiche, avvisi.
 // ═══════════════════════════════════════════════════════════════════════════
 import { store } from './store.js';
-import { esc, sha256, fmtDate, relTime, today, vibrate } from './util.js';
+import { esc, sha256, hashPass, verifyPass, fmtDate, relTime, today, vibrate } from './util.js';
 import { $, $$, ic, modal, toast, popover, avatar, confirmBox, chipFor, cap1 } from './ui.js';
 import { yearStats } from './calc.js';
+import { PROFILES } from './profile.js';
 import * as Cal from './views/calendar.js';
 import * as Me from './views/me.js';
 import * as Req from './views/requests.js';
@@ -14,6 +15,9 @@ import * as Sh from './views/sheets.js';
 import * as Team from './views/team.js';
 import * as Adm from './views/admin.js';
 import * as My from './views/myshifts.js';
+import * as Mk from './views/market.js';
+import * as Pay from './views/pay.js';
+import { watchLocalNotifications, enableNotifications, notifState } from './push.js';
 
 const VERSION = '1.0.0';
 
@@ -28,6 +32,7 @@ const NAV = [
   { id: 'turni', icon: 'radar', label: 'I miei turni', view: My.myShifts, role: 'me' },
   { id: 'me', icon: 'space_dashboard', label: 'La mia pagina', view: Me.home, role: 'me' },
   { id: 'richieste', icon: 'assignment', label: 'Richieste', view: Req.requests, role: 'me', badge: () => reqBadge() },
+  { id: 'borsa', icon: 'storefront', label: 'Borsa scambi', view: Mk.market, role: 'me', badge: () => Mk.marketBadge() },
   { id: 'agenda', icon: 'event_note', label: 'Disponibilità e agenda', view: Me.agenda, role: 'me' },
   { id: 'notifiche', icon: 'notifications', label: 'Notifiche', view: Me.notifications, role: 'me', badge: () => unreadCount() },
   { g: 'Conteggi', icon: 'functions' },
@@ -48,6 +53,7 @@ const NAV = [
   { id: 'gestione-richieste', icon: 'inbox', label: 'Richieste da gestire', view: Req.manage, role: 'mgr', badge: () => mgrReqBadge() },
   { id: 'operatori', icon: 'group', label: 'Operatori', view: Adm.operators, role: 'mgr' },
   { id: 'codici', icon: 'palette', label: 'Codici, orari e regole', view: Adm.codes, role: 'mgr' },
+  { id: 'paghe', icon: 'payments', label: 'Paghe e indennità', view: Pay.pay, role: 'mgr' },
   { id: 'stampe', icon: 'print', label: 'Stampe e moduli', view: Adm.prints, role: 'mgr' },
   { id: 'dati', icon: 'database', label: 'Importa, esporta, backup', view: Adm.data, role: 'mgr' },
   { id: 'storico', icon: 'history', label: 'Storico modifiche', view: Adm.history, role: 'mgr' },
@@ -110,6 +116,7 @@ function shell() {
   <div id="app">
     <aside class="side" id="side">
       <div class="side-brand"><img src="assets/icon-118-192.png" alt=""><div><b>${esc(store.config.app.title)}</b><small>${esc(store.config.app.unit || '')}</small></div></div>
+      <div class="prof-sw" id="prof-sw" role="tablist" aria-label="Reparto">${profSwitch()}</div>
       <nav class="side-nav" id="side-nav" aria-label="Sezioni"></nav>
       <div class="side-foot"><button class="who" id="who"></button></div>
     </aside>
@@ -118,6 +125,7 @@ function shell() {
       <button class="ibtn desk-only" id="btn-mini" aria-label="Riduci barra">${ic('left_panel_close')}</button>
       <div class="top-title" id="top-title"><h1></h1><span class="crumb"></span></div>
       <div class="top-actions"><span id="top-actions-view" class="row"></span>
+        <button class="prof-pill" id="prof-pill" title="Cambia reparto">${ic(store.profile.icon)}<span>${esc(store.profile.short)}</span>${ic('swap_horiz')}</button>
         <span class="pill desk-only" id="net-pill"></span>
         <button class="ibtn" id="btn-theme" title="Tema chiaro/scuro" aria-label="Tema">${ic('dark_mode')}</button>
         <button class="ibtn" id="btn-bell" title="Notifiche" aria-label="Notifiche">${ic('notifications')}<span class="badge" id="bell-badge"></span></button>
@@ -135,6 +143,10 @@ function shell() {
   $('#btn-theme').onclick = e => themeMenu(e.currentTarget);
   $('#btn-bell').onclick = e => bellMenu(e.currentTarget);
   $('#who').onclick = e => whoMenu(e.currentTarget);
+  $('#prof-sw').onclick = e => { const b = e.target.closest('[data-p]'); if (b) switchTo(b.dataset.p); };
+  $('#prof-pill').onclick = e => popover(e.currentTarget, Object.values(PROFILES).map(p => ({ icon: p.icon, label: 'Turni ' + p.short.toLowerCase(), right: p.key === store.profile.key ? ic('check') : '', run: () => switchTo(p.key) })));
+  // scorciatoia da tastiera: Alt+A autisti, Alt+I infermieri
+  document.addEventListener('keydown', e => { if (e.altKey && !e.ctrlKey && /^[ai]$/i.test(e.key)) { e.preventDefault(); switchTo(e.key.toLowerCase() === 'a' ? 'autisti' : 'infermieri'); } });
   window.addEventListener('hashchange', route);
 }
 function renderNav() {
@@ -171,6 +183,17 @@ function renderNet() {
   else p.innerHTML = `${ic('smartphone')}Locale`, p.className = 'pill warn desk-only', p.title = 'I dati sono salvati solo su questo dispositivo: collega il cloud in Impostazioni';
 }
 
+// ── Reparto: autisti / infermieri ──
+function profSwitch() {
+  return Object.values(PROFILES).map(p => `<button data-p="${p.key}" role="tab" aria-selected="${p.key === store.profile.key}" class="${p.key === store.profile.key ? 'on' : ''}" title="Turni ${p.short.toLowerCase()} (Alt+${p.short[0]})">${ic(p.icon)}<span>${esc(p.short)}</span></button>`).join('');
+}
+function switchTo(key) {
+  if (key === store.profile.key) return;
+  if (store.pendingCount() && !confirm('Hai modifiche in bozza non pubblicate: restano salvate su questo dispositivo. Cambiare reparto?')) return;
+  document.body.classList.add('prof-leaving');
+  setTimeout(() => store.switchProfile(key), 160);
+}
+
 // ── Menu utente, tema, notifiche ──
 function whoMenu(a) {
   const items = [];
@@ -190,8 +213,12 @@ function bellMenu(a) {
   const list = store.myNotif().slice(0, 8);
   const html = list.length ? list.map(([id, n]) => `<div class="list-i" style="padding:10px 8px;${n.read ? 'opacity:.6' : ''}">${ic(n.kind === 'turni' ? 'event_repeat' : n.kind === 'richiesta' ? 'assignment' : 'notifications')}<div class="grow"><b style="font-size:13px">${esc(n.title)}</b><div class="small muted">${esc(n.body || (n.dates ? n.dates.map(d => fmtDate(d)).slice(0, 4).join(', ') + (n.dates.length > 4 ? '…' : '') : ''))}</div></div><span class="tiny muted nowrap">${relTime(n.ts)}</span></div>`).join('')
     : `<div class="empty" style="padding:24px">${ic('notifications_off')}Nessuna notifica</div>`;
-  const p = popover(a, [{ html: `<div style="width:min(360px,86vw);max-height:60vh;overflow:auto">${html}</div>` }, '-', { icon: 'done_all', label: 'Segna tutte come lette', run: () => store.markRead(list.filter(([, n]) => !n.read).map(([id]) => id)) }, { icon: 'open_in_new', label: 'Apri tutte le notifiche', run: () => go('notifiche') }]);
+  const p = popover(a, [{ html: `<div style="width:min(360px,86vw);max-height:60vh;overflow:auto">${html}</div>` }, '-', { icon: 'done_all', label: 'Segna tutte come lette', run: () => store.markRead(list.filter(([, n]) => !n.read).map(([id]) => id)) }, { icon: notifState() === 'granted' ? 'notifications_active' : 'add_alert', label: notifState() === 'granted' ? 'Notifiche sul telefono: attive' : 'Attiva le notifiche sul telefono', run: () => askNotifications() }, { icon: 'open_in_new', label: 'Apri tutte le notifiche', run: () => go('notifiche') }]);
   return p;
+}
+export async function askNotifications() {
+  try { const how = await enableNotifications(); toast(how === 'push' ? 'Notifiche attive anche ad app chiusa' : 'Notifiche attive: arrivano quando l’app è aperta o in background (con il cloud anche ad app chiusa)'); }
+  catch (e) { toast(e.message, 'warn', { ms: 6000 }); }
 }
 function aboutBox() {
   modal({
@@ -214,11 +241,12 @@ export function gate(force = false) {
     <div class="gate-l"><img src="assets/icon-118-192.png" alt=""><div><h1>${esc(store.config.app.title)}</h1><div style="opacity:.8;margin-top:6px">${esc(store.config.app.unit || '')} · ${store.config.year}</div></div>
       <ul><li>${ic('calendar_month')}Calendario identico al foglio Excel</li><li>${ic('phone_in_talk')}Reperibilità a fasce e quadro mensile</li><li>${ic('schedule')}Saldo ore settimanale sulle 36 ore</li><li>${ic('beach_access')}Ferie, permessi e richieste online</li><li>${ic('notifications_active')}Avvisi quando cambiano i tuoi turni</li></ul>
       <div class="sp"></div><div class="small" style="opacity:.6">${esc(store.config.app.entity || '')}</div></div>
-    <div class="gate-r"><div><h2 style="margin:0 0 4px">Chi sei?</h2><div class="muted">Scegli il tuo nome per vedere la tua pagina personale. Puoi cambiarlo quando vuoi.</div></div>
+    <div class="gate-r"><div class="prof-sw gate-sw">${profSwitch()}</div><div><h2 style="margin:0 0 4px">Chi sei?</h2><div class="muted">Scegli il tuo nome per vedere la tua pagina personale. Puoi cambiarlo quando vuoi.</div></div>
       <div class="gate-ops">${ops.map(o => `<button class="gate-op" data-op="${o.id}">${avatar(o.id)}<span><b>${esc(o.name)} ${esc(cap1(o.surname))}</b><small>${o.pinHash ? ic('lock') + ' con PIN' : esc(o.label || store.profile.roleOne)}</small></span></button>`).join('')}</div>
       <div class="row wrap" style="border-top:1px solid var(--line);padding-top:14px"><button class="btn" data-guest>${ic('visibility')}Entra senza scegliere</button><span class="sp"></span><button class="btn" data-coord>${ic('supervisor_account')}Coordinatore</button><button class="btn red" data-admin>${ic('shield_person')}Amministratore</button></div>
     </div></div>`;
   document.body.appendChild(g);
+  g.querySelector('.gate-sw').onclick = e => { const b = e.target.closest('[data-p]'); if (b) switchTo(b.dataset.p); };
   const close = () => { g.remove(); renderNav(); route(); afterLogin(); };
   g.querySelector('[data-guest]').onclick = () => { store.lsSet(`${store.ns}:guest`, true); store.setMe(null); close(); };
   g.querySelector('[data-coord]').onclick = () => askLogin('coord', () => { g.remove(); go('dashboard'); });
@@ -226,57 +254,111 @@ export function gate(force = false) {
   g.querySelectorAll('[data-op]').forEach(b => b.onclick = async () => {
     const o = store.op(b.dataset.op);
     if (o.pinHash) { const ok = await askPin(o); if (!ok) return; }
+    else if (store.config.rules.pinRequired) { const ok = await createPin(o); if (!ok) return; }
     store.setMe(o.id); toast(`Ciao ${o.name}!`); history.replaceState(null, '', '#/turni'); close();
+  });
+}
+// Primo accesso con PIN obbligatorio: l'operatore sceglie il suo PIN
+function createPin(o) {
+  return new Promise(res => {
+    const m = modal({ title: 'Crea il tuo PIN', icon: 'password', foot: '', onClose: v => res(!!v), body: `<div class="col"><div class="muted small">Il coordinatore ha attivato il PIN personale: sceglilo ora (4 cifre), ti servirà per entrare come ${esc(o.name || cap1(o.surname))}.</div><div class="grid g2"><label class="field">PIN<input class="inp" id="p1" inputmode="numeric" maxlength="4" type="password"></label><label class="field">Ripeti il PIN<input class="inp" id="p2" inputmode="numeric" maxlength="4" type="password"></label></div><div class="small neg" id="pe"></div></div>` });
+    m.foot.innerHTML = `<button class="btn pri">${ic('lock')}Salva il PIN</button>`;
+    m.foot.firstChild.onclick = async () => {
+      const a = m.body.querySelector('#p1').value, b = m.body.querySelector('#p2').value;
+      if (!/^\d{4}$/.test(a)) return m.body.querySelector('#pe').textContent = 'Servono 4 cifre';
+      if (/^(\d)\1{3}$|^(1234|0123|4321|2580)$/.test(a)) return m.body.querySelector('#pe').textContent = 'PIN troppo facile da indovinare';
+      if (a !== b) return m.body.querySelector('#pe').textContent = 'I due PIN non coincidono';
+      o.pinHash = await hashPass(a); await store.saveConfig({ operators: store.config.operators }, 'PIN creato da ' + o.surname); m.close(true); toast('PIN salvato');
+    };
   });
 }
 function askPin(o) {
   return new Promise(res => {
-    const m = modal({ title: `PIN di ${o.name}`, icon: 'lock', body: `<div class="col" style="align-items:center"><div class="muted small">Inserisci il tuo PIN di 4 cifre</div><div class="pin">${[0, 1, 2, 3].map(i => `<input inputmode="numeric" maxlength="1" data-i="${i}">`).join('')}</div><div class="small neg" id="pin-err"></div></div>`, onClose: v => res(!!v) });
+    const m = modal({ title: `PIN di ${o.name || cap1(o.surname)}`, icon: 'lock', body: `<div class="col" style="align-items:center"><div class="muted small">Inserisci il tuo PIN di 4 cifre</div><div class="pin">${[0, 1, 2, 3].map(i => `<input inputmode="numeric" maxlength="1" data-i="${i}" autocomplete="off">`).join('')}</div><div class="small neg" id="pin-err"></div></div>`, onClose: v => res(!!v) });
     const ins = [...m.body.querySelectorAll('input')]; setTimeout(() => ins[0].focus(), 80);
-    ins.forEach((inp, i) => inp.addEventListener('input', async () => {
-      inp.value = inp.value.replace(/\D/g, '').slice(-1);
-      if (inp.value && i < 3) ins[i + 1].focus();
-      const v = ins.map(x => x.value).join('');
-      if (v.length === 4) { if (await sha256(o.id + ':' + v) === o.pinHash) m.close(true); else { m.body.querySelector('#pin-err').textContent = 'PIN errato'; ins.forEach(x => x.value = ''); ins[0].focus(); } }
-    }));
+    const errEl = m.body.querySelector('#pin-err');
+    ins.forEach((inp, i) => {
+      inp.addEventListener('keydown', e => { if (e.key === 'Backspace' && !inp.value && i > 0) ins[i - 1].focus(); });
+      inp.addEventListener('input', async () => {
+        inp.value = inp.value.replace(/\D/g, '').slice(-1);
+        if (inp.value && i < 3) ins[i + 1].focus();
+        const v = ins.map(x => x.value).join('');
+        if (v.length < 4) return;
+        const lk = store.lockState(); if (lk.until > Date.now()) { errEl.textContent = `Troppi tentativi: riprova tra ${Math.ceil((lk.until - Date.now()) / 1000)} secondi`; ins.forEach(x => x.value = ''); return; }
+        if (await verifyPass(v, o.pinHash, o.id + ':')) {
+          store.clearFails();
+          if (!String(o.pinHash).startsWith('pbkdf2$')) { o.pinHash = await hashPass(v); store.saveConfig({ operators: store.config.operators }, 'PIN aggiornato alla cifratura PBKDF2').catch(() => { }); }
+          m.close(true);
+        } else { const l = store.noteFail(); errEl.textContent = l.until > Date.now() ? 'Troppi tentativi: accesso bloccato per qualche minuto' : `PIN errato (${Math.max(0, 5 - l.fails)} tentativi prima del blocco)`; ins.forEach(x => x.value = ''); ins[0].focus(); }
+      });
+    });
   });
 }
 
 // ── Accesso coordinatore / amministratore ──
+// Password cifrate con PBKDF2; dopo 5 errori l'accesso si blocca e l'attesa raddoppia; la sessione
+// scade dopo 12 ore (30 giorni con "ricorda") e dopo un periodo di inattività. Con il cloud collegato
+// c'è anche l'accesso con link via email verificato da Firebase.
 export function askLogin(role, then) {
   const cfg = store.config;
   const firstSetup = !cfg.adminHash;
+  const cloudMail = store.adapter.kind === 'cloud' && (cfg.managers || []).length;
   const m = modal({
     title: firstSetup ? 'Prima configurazione' : (role === 'admin' ? 'Accesso amministratore' : 'Accesso coordinatore'), icon: firstSetup ? 'key' : 'lock', foot: '',
-    body: firstSetup ? `<div class="col"><div class="note">${ic('info')}<div>È il primo accesso all’area gestione: scegli la <b>password dell’amministratore</b> (almeno 6 caratteri). Potrai poi creare anche una password separata per il coordinatore in Impostazioni.</div></div>
+    body: firstSetup ? `<div class="col"><div class="note">${ic('info')}<div>È il primo accesso all’area gestione: scegli la <b>password dell’amministratore</b> (almeno 8 caratteri, con lettere e numeri). Potrai poi creare anche una password separata per il coordinatore in Impostazioni.</div></div>
       <label class="field">Nuova password amministratore<input class="inp" type="password" id="lg-1" autocomplete="new-password"></label>
+      <div class="lockbar"><i id="lg-str" style="width:0"></i></div>
       <label class="field">Ripeti la password<input class="inp" type="password" id="lg-2" autocomplete="new-password"></label><div class="small neg" id="lg-err"></div></div>`
       : `<div class="col"><div class="muted small">${role === 'admin' ? 'Gestione completa: turni, operatori, impostazioni, cloud, accessi.' : 'Gestione turni, richieste, operatori e stampe.'}</div>
       <label class="field">Password<input class="inp" type="password" id="lg-1" autocomplete="current-password"></label>
-      <label class="chk"><input type="checkbox" id="lg-keep" checked> Ricorda su questo dispositivo</label><div class="small neg" id="lg-err"></div></div>`
+      <label class="chk"><input type="checkbox" id="lg-keep"> Ricorda su questo dispositivo per 30 giorni</label><div class="small neg" id="lg-err"></div>
+      ${cloudMail ? `<div class="note small">${ic('mail')}<div>Accesso verificato dal server: <button class="btn sm" id="lg-mail" type="button">${ic('forward_to_inbox')}Ricevi un link via email</button></div></div>` : ''}</div>`
   });
   m.foot.innerHTML = `<button class="btn" data-c>Annulla</button><button class="btn pri" data-o>${ic('login')}${firstSetup ? 'Salva e accedi' : 'Accedi'}</button>`;
   const p1 = m.body.querySelector('#lg-1'); setTimeout(() => p1.focus(), 80);
   const err = t => m.body.querySelector('#lg-err').textContent = t;
+  const strength = v => (v.length >= 8) + (v.length >= 12) + (/[a-z]/i.test(v) && /\d/.test(v)) + /[^a-z0-9]/i.test(v);
+  if (firstSetup) p1.addEventListener('input', () => { const n = strength(p1.value); const bar = m.body.querySelector('#lg-str'); bar.style.width = n * 25 + '%'; bar.style.background = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#16a34a'][n]; });
+  const mail = m.body.querySelector('#lg-mail');
+  if (mail) mail.onclick = async () => { const em = await promptEmail(); if (!em) return; try { await store.adapter.sendLink(em); toast('Ti abbiamo mandato un link: aprilo da questo dispositivo'); m.close(); } catch (e) { err(e.message); } };
   const submit = async () => {
     if (firstSetup) {
       const a = p1.value, b = m.body.querySelector('#lg-2').value;
-      if (a.length < 6) return err('Almeno 6 caratteri'); if (a !== b) return err('Le password non coincidono');
-      const h = await sha256('gt2:' + a); await store.saveConfig({ adminHash: h }, 'Password amministratore impostata');
+      if (strength(a) < 2) return err('Password troppo debole: almeno 8 caratteri con lettere e numeri'); if (a !== b) return err('Le password non coincidono');
+      const h = await hashPass(a); await store.saveConfig({ adminHash: h }, 'Password amministratore impostata');
       store.setAuth('admin', h); m.close(); toast('Password salvata: sei amministratore'); then && then(); return;
     }
-    const h = await sha256('gt2:' + p1.value);
-    let ok = null;
-    if (h === cfg.adminHash) ok = role === 'admin' ? 'admin' : 'admin';
-    else if (role === 'coord' && cfg.coordHash && h === cfg.coordHash) ok = 'coord';
-    if (!ok) { err('Password errata'); p1.select(); return; }
-    store.setAuth(ok, h);
+    const lk = store.lockState();
+    if (lk.until > Date.now()) return err(`Troppi tentativi sbagliati: riprova tra ${Math.ceil((lk.until - Date.now()) / 1000)} secondi`);
+    const btn = m.foot.querySelector('[data-o]'); btn.disabled = true;
+    let ok = null, stored = null;
+    if (await verifyPass(p1.value, cfg.adminHash, 'gt2:')) { ok = 'admin'; stored = cfg.adminHash; }
+    else if (role === 'coord' && cfg.coordHash && await verifyPass(p1.value, cfg.coordHash, 'gt2:')) { ok = 'coord'; stored = cfg.coordHash; }
+    btn.disabled = false;
+    if (!ok) { const l = store.noteFail(); err(l.until > Date.now() ? 'Troppi tentativi sbagliati: accesso bloccato per qualche minuto' : `Password errata (${Math.max(0, 5 - l.fails)} tentativi prima del blocco)`); p1.select(); return; }
+    store.clearFails();
+    // vecchia impronta SHA-256: si converte subito in PBKDF2
+    if (!String(stored).startsWith('pbkdf2$')) { stored = await hashPass(p1.value); await store.saveConfig(ok === 'admin' ? { adminHash: stored } : { coordHash: stored }, 'Password aggiornata alla cifratura PBKDF2'); }
+    store.setAuth(ok, stored, m.body.querySelector('#lg-keep').checked);
     m.close(); toast(ok === 'admin' ? 'Accesso amministratore' : 'Accesso coordinatore'); then && then();
   };
   p1.addEventListener('keydown', e => { if (e.key === 'Enter' && !firstSetup) submit(); });
   m.foot.querySelector('[data-c]').onclick = () => m.close();
   m.foot.querySelector('[data-o]').onclick = submit;
 }
+function promptEmail() {
+  return new Promise(res => { const m = modal({ title: 'Accesso con link', icon: 'mail', foot: '', onClose: v => res(v || null), body: `<label class="field">La tua email (registrata dall’amministratore)<input class="inp" type="email" id="em"></label>` }); m.foot.innerHTML = `<button class="btn pri">Invia il link</button>`; m.foot.firstChild.onclick = () => m.close(m.body.querySelector('#em').value.trim()); });
+}
+// Blocco per inattività dell'area gestione (salvo "ricorda su questo dispositivo")
+let idleT = null;
+function armIdle() {
+  clearTimeout(idleT);
+  const min = (store.config && store.config.rules && store.config.rules.idleLockMin) ?? 30;
+  if (!store.config || !store.isManager() || !min) return;
+  const tok = store.lsGet(`${store.ns}:auth`) || {}; if (tok.keep) return;
+  idleT = setTimeout(() => { if (store.isManager()) { store.setAuth(null); toast('Area gestione chiusa per inattività', 'info'); go('turni'); } }, min * 60e3);
+}
+['pointerdown', 'keydown'].forEach(ev => window.addEventListener(ev, () => armIdle(), { passive: true, capture: true }));
 
 // ── Dopo l'accesso: avviso iniziale, bacheca, turni cambiati ──
 function afterLogin() {
@@ -315,6 +397,7 @@ async function start() {
     document.body.innerHTML = `<div style="padding:30px;font-family:system-ui"><h2>Impossibile avviare l'app</h2><pre style="white-space:pre-wrap">${esc(e.stack || e.message)}</pre><button onclick="localStorage.removeItem('gt2:cloud');location.reload()">Riprova in modalità locale</button></div>`;
     return;
   }
+  if (new URLSearchParams(location.search).get('server') === '1') return serverMode();
   shell();
   store.on((what) => {
     if (['requests', 'notif', 'role', 'me', 'config', 'net', 'cells', 'edit'].includes(what)) renderNav();
@@ -327,5 +410,25 @@ async function start() {
   // in locale (sviluppo) niente cache: si vedono subito le modifiche ai file
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => { });
   window.GT2 = { store, go, VERSION };
+  watchLocalNotifications();
+}
+// Il motore (GitHub Actions) apre l'app con ?server=1 in un browser invisibile e legge questi dati
+function serverMode() {
+  document.body.innerHTML = '<pre style="padding:20px">Turni 118 · modalità server</pre>';
+  window.GT2SERVER = {
+    ready: true,
+    async export() {
+      const since = Date.now() - 3 * 864e5;
+      return {
+        profile: store.profile.key, team: store.config.app.title, cloud: store.adapter.kind, today: today(),
+        url: location.href.split('?')[0],
+        people: store.ops().map(o => ({ id: o.id, name: `${o.name} ${o.surname}`.trim() })),
+        ics: Object.fromEntries(store.ops().map(o => [o.id, Me.buildICS(o.id, 60)])),
+        notif: Object.entries(await store.adapter.listItems('notif', since)).map(([id, n]) => ({ id, op: n.op, title: n.title, body: n.body || (n.dates ? n.dates.length + ' giorni modificati' : ''), ts: n.ts, kind: n.kind })),
+        subs: await store.adapter.listItems('push')
+      };
+    },
+    async removeSubs(ids) { for (const id of ids) await store.adapter.deleteItem('push', id); return ids.length; }
+  };
 }
 start();

@@ -4,11 +4,12 @@
 // accessi, impostazioni (password, cloud, profilo, nuovo anno).
 // ═══════════════════════════════════════════════════════════════════════════
 import { store } from '../store.js';
-import { esc, MONTHS, WD, today, addDays, fmtDate, fmtShort, hm, parseHM, monthDays, dow, yearOf, monthIdx, rangeDays, relTime, stamp, download, sha256, uid, cap, holidaysSM, deepClone } from '../util.js';
+import { esc, MONTHS, WD, today, addDays, fmtDate, fmtShort, hm, parseHM, monthDays, dow, yearOf, monthIdx, rangeDays, relTime, stamp, download, sha256, hashPass, uid, cap, holidaysSM, deepClone } from '../util.js';
 import { ic, modal, toast, confirmBox, promptBox, popover, chipFor, opChip, avatar, cap1, shiftStyle, absStyle } from '../ui.js';
-import { shiftInfo, shiftList, absList, absInfo, lineOf, codeForLine, coverage, validate, yearStats, weeks, repOf, repBands, hasRep, workedMin, describe, shortCell } from '../calc.js';
-import { DEFAULT_SHIFTS, DEFAULT_ABSENCES, DEFAULT_REP_BANDS, CYCLE, LINE_COLORS, OPERATOR_PALETTE, PROFILES, COVERAGE } from '../profile.js';
+import { shiftInfo, shiftList, absList, absInfo, lineOf, codeForLine, coverage, validate, yearStats, weeks, repOf, repBands, hasRep, workedMin, describe, shortCell, cycle, diurnoCode, repCodeOf, coverageWant } from '../calc.js';
+import { DEFAULT_SHIFTS, DEFAULT_ABSENCES, DEFAULT_REP_BANDS, LINE_COLORS, OPERATOR_PALETTE, PROFILES, COVERAGE } from '../profile.js';
 import { kpi } from './me.js';
+import { build, detectRole } from '../gen.js';
 import { quadro } from './counts.js';
 import { changesFor, TYPES } from './requests.js';
 import { parseWorkbook, diffImport, exportWorkbook } from '../excel.js';
@@ -68,77 +69,55 @@ export function dashboard(el, params, ctx) {
   return store.on(w => { if (['cells', 'requests', 'config'].includes(w)) draw(); });
 }
 
-// ══ BOZZA AUTOMATICA ═════════════════════════════════════════════════════
+// ══ BOZZA AUTOMATICA (intelligente) ═════════════════════════════════════
 export function generator(el, params, ctx) {
   if (!guard(el, ctx, 'bozza')) return;
   let mi = curM() + (new Date().getDate() > 15 ? 1 : 0); if (mi > 12) mi = 12;
-  const plan = {}; let opts = { onlyEmpty: true, keepAbs: true, rep: 'mat', weekendDiurni: 'ripo' };
-  const detect = (op, start) => {
-    for (let k = 1; k <= 10; k++) { const d = addDays(start, -k); const c = store.cell(op, d); if (c && c.s) { const l = lineOf(c.s, d); if (l != null) return 'L' + l; if (shiftInfo(c.s).group === 'D') return 'DA'; } }
-    return 'skip';
-  };
+  const roles = {}; let roleMonth = -1;
+  let opts = { onlyEmpty: true, keepAbs: true, rep: 'eq', weekendDiurni: 'ripo', optimize: true, respectAvail: true, pendingRequests: true };
+  let result = null;
+  const LN = ['rossa', 'verde', 'blu', 'arancio', 'fucsia'];
   const draw = () => {
     const [y, m] = ymOf(mi); const days = monthDays(y, m);
-    for (const o of store.ops()) if (!plan[o.id] || plan[o.id]._m !== mi) plan[o.id] = { v: detect(o.id, days[0]), _m: mi };
-    el.innerHTML = `<div class="page wide"><div class="page-h"><div><h2>Bozza automatica del mese</h2><p>Genera i turni seguendo il ciclo a 5 linee dei turnisti (POM → MAT → NOTT → SM → R) e lo schema dei diurni. La bozza va in “Modifica turni”: controlli, ritocchi e pubblichi.</p></div><div class="acts">${monthSel(mi)}</div></div>
-      <div class="grid" style="grid-template-columns:minmax(0,1fr) 340px;gap:16px" id="gg">
-      <div class="card"><div class="card-h"><span class="ms ico">groups</span><h3 class="grow">Ruolo di ogni operatore</h3><span class="small muted">proposto in base al mese precedente</span></div><div class="card-b flush">
-        ${store.ops().map(o => `<div class="list-i">${avatar(o.id)}<span class="grow"><b>${esc(o.name)} ${esc(cap1(o.surname))}</b><div class="small muted">ultimo turno: ${(() => { for (let k = 1; k <= 3; k++) { const d = addDays(days[0], -k); const c = store.cell(o.id, d); if (c && (c.s || c.a)) return esc(fmtShort(d) + ' ' + shortCell(c)); } return '—'; })()}</div></span>
-          <select class="inp sm" data-op="${o.id}" style="width:220px">${[0, 1, 2, 3, 4].map(l => `<option value="L${l}" ${plan[o.id].v === 'L' + l ? 'selected' : ''}>Turnista · linea ${l + 1} (${['rossa', 'verde', 'blu', 'arancio', 'fucsia'][l]})</option>`).join('')}<option value="DA" ${plan[o.id].v === 'DA' ? 'selected' : ''}>Diurno · settimane M/P alternate</option><option value="DM" ${plan[o.id].v === 'DM' ? 'selected' : ''}>Diurno · solo mattine</option><option value="DP" ${plan[o.id].v === 'DP' ? 'selected' : ''}>Diurno · solo pomeriggi</option><option value="skip" ${plan[o.id].v === 'skip' ? 'selected' : ''}>Non generare</option></select>
-          <span style="width:14px;height:14px;border-radius:4px;background:${plan[o.id].v.startsWith('L') ? LINE_COLORS[+plan[o.id].v[1]] : 'transparent'}"></span></div>`).join('')}</div></div>
+    if (roleMonth !== mi) { for (const o of store.ops()) { const r = detectRole(o.id, days[0]); roles[o.id] = r.startsWith('L') ? 'AUTO' : r; } roleMonth = mi; result = null; }
+    const per = coverageWant().tm;
+    el.innerHTML = `<div class="page wide"><div class="page-h"><div><h2>Bozza automatica del mese</h2><p>I turnisti seguono il ciclo a 5 linee (${cycle().join(' → ')}): l’algoritmo sceglie la linea migliore per ognuno (${per > 1 ? per + ' operatori per linea' : 'un operatore per linea'}) tenendo conto di assenze, disponibilità, richieste in attesa, continuità col mese prima ed equità. La bozza va in “Modifica turni”: controlli, ritocchi e pubblichi.</p></div><div class="acts">${monthSel(mi)}</div></div>
+      <div class="grid" style="grid-template-columns:minmax(0,1fr) 360px;gap:16px" id="gg">
+      <div class="card"><div class="card-h"><span class="ms ico">groups</span><h3 class="grow">Ruolo di ogni operatore</h3><button class="btn sm" id="allauto">${ic('auto_awesome')}Tutti i turnisti in automatico</button></div><div class="card-b flush" style="max-height:62vh;overflow:auto">
+        ${store.ops().map(o => { const v = roles[o.id]; const ln = result && result.lines[o.id] != null && (v === 'AUTO' || v.startsWith('L')) ? result.lines[o.id] : (v.startsWith('L') ? +v[1] : null); return `<div class="list-i">${avatar(o.id)}<span class="grow"><b>${esc(o.name)} ${esc(cap1(o.surname))}</b><div class="small muted">ultimo: ${(() => { for (let k = 1; k <= 3; k++) { const d = addDays(days[0], -k); const c = store.cell(o.id, d); if (c && (c.s || c.a)) return esc(fmtShort(d) + ' ' + shortCell(c)); } return '—'; })()}${ln != null ? ` · <b style="color:${LINE_COLORS[ln]}">linea ${ln + 1}</b>` : ''}</div></span>
+          <select class="inp sm" data-op="${o.id}" style="width:230px"><option value="AUTO" ${v === 'AUTO' ? 'selected' : ''}>Turnista · linea automatica</option>${[0, 1, 2, 3, 4].map(l => `<option value="L${l}" ${v === 'L' + l ? 'selected' : ''}>Turnista · linea ${l + 1} (${LN[l]})</option>`).join('')}<option value="DA" ${v === 'DA' ? 'selected' : ''}>Diurno · settimane M/P alternate</option><option value="DM" ${v === 'DM' ? 'selected' : ''}>Diurno · solo mattine</option><option value="DP" ${v === 'DP' ? 'selected' : ''}>Diurno · solo pomeriggi</option><option value="skip" ${v === 'skip' ? 'selected' : ''}>Non generare</option></select>
+          <span style="width:14px;height:14px;border-radius:4px;background:${ln != null ? LINE_COLORS[ln] : 'transparent'}"></span></div>`; }).join('')}</div></div>
       <div class="col" style="gap:16px"><div class="card"><div class="card-h"><span class="ms ico">tune</span><h3>Opzioni</h3></div><div class="card-b col">
-        <label class="chk"><input type="checkbox" id="o1" ${opts.onlyEmpty ? 'checked' : ''}>Riempi solo le caselle vuote</label>
-        <label class="chk"><input type="checkbox" id="o2" ${opts.keepAbs ? 'checked' : ''}>Non toccare i giorni di assenza</label>
-        <label class="field">Reperibilità (/R)<select class="inp" id="o3"><option value="mat" ${opts.rep === 'mat' ? 'selected' : ''}>Al turnista di mattina (MAT/R)</option><option value="eq" ${opts.rep === 'eq' ? 'selected' : ''}>A rotazione equa tra chi fa mattina</option><option value="no" ${opts.rep === 'no' ? 'selected' : ''}>Non assegnare</option></select></label>
-        <label class="field">Diurni nel weekend<select class="inp" id="o4"><option value="ripo" ${opts.weekendDiurni === 'ripo' ? 'selected' : ''}>Riposo (ripo)</option><option value="work" ${opts.weekendDiurni === 'work' ? 'selected' : ''}>Lavorano come in settimana</option></select></label>
-        <div class="note small">${ic('info')}<div>Ogni linea copre a turno POM, MAT, NOTT, SM e R: con 5 turnisti su 5 linee diverse ogni giorno c’è esattamente una mattina, un pomeriggio e una notte.</div></div>
-        <button class="btn pri lg" id="gen">${ic('auto_awesome')}Crea la bozza</button></div></div>
-        <div class="card"><div class="card-h"><span class="ms ico">checklist</span><h3>Linee scelte</h3></div><div class="card-b" id="lines"></div></div></div></div>
-      <div class="card mt"><div class="card-h"><span class="ms ico">preview</span><h3>Anteprima</h3></div><div class="card-b" style="overflow:auto" id="prev"></div></div></div>`;
+        <label class="chk"><input type="checkbox" data-o="optimize" ${opts.optimize ? 'checked' : ''}>Ottimizza le linee (anche quelle scelte a mano)</label>
+        <label class="chk"><input type="checkbox" data-o="respectAvail" ${opts.respectAvail ? 'checked' : ''}>Rispetta le disponibilità (impossibile, solo mattina/pomeriggio)</label>
+        <label class="chk"><input type="checkbox" data-o="pendingRequests" ${opts.pendingRequests ? 'checked' : ''}>Tieni libere le ferie e i permessi chiesti e non ancora approvati</label>
+        <label class="chk"><input type="checkbox" data-o="onlyEmpty" ${opts.onlyEmpty ? 'checked' : ''}>Riempi solo le caselle vuote</label>
+        <label class="chk"><input type="checkbox" data-o="keepAbs" ${opts.keepAbs ? 'checked' : ''}>Non toccare i giorni di assenza</label>
+        <label class="field">Reperibilità (/R)<select class="inp" data-s="rep"><option value="eq" ${opts.rep === 'eq' ? 'selected' : ''}>Equa: a chi ne ha fatte meno nell’anno</option><option value="mat" ${opts.rep === 'mat' ? 'selected' : ''}>Al turnista di mattina</option><option value="no" ${opts.rep === 'no' ? 'selected' : ''}>Non assegnare</option></select></label>
+        <label class="field">Diurni nel weekend<select class="inp" data-s="weekendDiurni"><option value="ripo" ${opts.weekendDiurni === 'ripo' ? 'selected' : ''}>Riposo</option><option value="work" ${opts.weekendDiurni === 'work' ? 'selected' : ''}>Lavorano come in settimana</option></select></label>
+        <button class="btn lg" id="calc">${ic('psychology')}Calcola la soluzione migliore</button>
+        <button class="btn pri lg" id="gen" ${result ? '' : 'disabled'}>${ic('auto_awesome')}Crea la bozza</button></div></div>
+        <div class="card"><div class="card-h"><span class="ms ico">insights</span><h3>Punteggio</h3></div><div class="card-b" id="score">${result ? scoreHtml(result) : '<div class="small muted">Premi “Calcola” per vedere la proposta e il punteggio.</div>'}</div></div></div></div>
+      <div class="card mt"><div class="card-h"><span class="ms ico">preview</span><h3>Anteprima</h3></div><div class="card-b" style="overflow:auto" id="prev">${result ? previewHtml(y, m, result) : '<div class="small muted">L’anteprima compare dopo il calcolo.</div>'}</div></div></div>`;
     if (innerWidth < 1000) el.querySelector('#gg').style.gridTemplateColumns = '1fr';
     el.querySelector('#msel').onchange = e => { mi = +e.target.value; draw(); };
-    el.querySelectorAll('[data-op]').forEach(s => s.onchange = () => { plan[s.dataset.op].v = s.value; draw(); });
-    ['o1', 'o2'].forEach((k, i) => el.querySelector('#' + k).onchange = e => { opts[i ? 'keepAbs' : 'onlyEmpty'] = e.target.checked; preview(); });
-    el.querySelector('#o3').onchange = e => { opts.rep = e.target.value; preview(); };
-    el.querySelector('#o4').onchange = e => { opts.weekendDiurni = e.target.value; preview(); };
-    const used = {}; for (const o of store.ops()) { const v = plan[o.id].v; if (v.startsWith('L')) (used[v] = used[v] || []).push(o); }
-    el.querySelector('#lines').innerHTML = [0, 1, 2, 3, 4].map(l => { const u = used['L' + l] || []; return `<div class="row" style="padding:3px 0"><i style="width:12px;height:12px;border-radius:3px;background:${LINE_COLORS[l]}"></i><span class="grow">Linea ${l + 1}</span>${u.length ? u.map(o => opChip(o.id)).join(' ') : '<span class="pill warn">libera</span>'}${u.length > 1 ? '<span class="pill err">doppia</span>' : ''}</div>`; }).join('');
-    el.querySelector('#gen').onclick = () => { const ch = build(); if (!ch.length) return toast('Niente da generare con queste opzioni', 'warn'); store.stage(ch, 'Bozza automatica'); toast(`Bozza creata: ${ch.length} caselle`); ctx.go('modifica', { m: mi }); };
-    preview();
+    el.querySelectorAll('[data-op]').forEach(s => s.onchange = () => { roles[s.dataset.op] = s.value; result = null; draw(); });
+    el.querySelectorAll('[data-o]').forEach(c => c.onchange = () => { opts[c.dataset.o] = c.checked; result = null; draw(); });
+    el.querySelectorAll('[data-s]').forEach(c => c.onchange = () => { opts[c.dataset.s] = c.value; result = null; draw(); });
+    el.querySelector('#allauto').onclick = () => { for (const o of store.ops()) if (roles[o.id].startsWith('L')) roles[o.id] = 'AUTO'; result = null; draw(); };
+    el.querySelector('#calc').onclick = () => {
+      const b = el.querySelector('#calc'); b.disabled = true; b.innerHTML = 'Calcolo in corso…';
+      setTimeout(() => { result = build(y, m, roles, opts); draw(); toast(result.summary.gaps ? `Proposta pronta: restano ${result.summary.gaps} buchi di copertura` : 'Proposta pronta: tutte le fasce coperte'); }, 30);
+    };
+    el.querySelector('#gen').onclick = () => { if (!result || !result.changes.length) return toast('Niente da generare con queste opzioni', 'warn'); store.stage(result.changes, 'Bozza automatica'); toast(`Bozza creata: ${result.changes.length} caselle`); ctx.go('modifica', { m: mi }); };
   };
-  function build() {
-    const [y, m] = ymOf(mi); const days = monthDays(y, m); const ch = []; const repCount = {};
-    for (const d of days) {
-      const morning = [];
-      for (const o of store.ops()) {
-        const v = plan[o.id].v; if (v === 'skip') continue;
-        const cur = store.cell(o.id, d);
-        if (opts.keepAbs && cur && cur.a) continue;
-        if (opts.onlyEmpty && cur && cur.s) { if (/^(MAT|matt)/.test(cur.s)) morning.push({ o, code: cur.s }); continue; }
-        let code;
-        if (v.startsWith('L')) code = codeForLine(+v[1], d);
-        else { const w = dow(d); const wk = Math.floor((Date.parse(d) / 864e5 + 3) / 7);
-          if ((w === 0 || w === 6) && opts.weekendDiurni === 'ripo') code = 'ripo';
-          else code = v === 'DM' ? 'matt' : v === 'DP' ? 'pome' : (wk % 2 ? 'pome' : 'matt'); }
-        const c = Object.assign({}, cur || {}, { s: code });
-        ch.push({ key: o.id + '|' + d, val: c });
-        if (code === 'MAT' || code === 'matt') morning.push({ o, code, ref: c });
-      }
-      if (opts.rep !== 'no') {
-        let pick = null;
-        if (opts.rep === 'mat') pick = morning.find(x => x.code === 'MAT');
-        else pick = [...morning].sort((a, b) => (repCount[a.o.id] || 0) - (repCount[b.o.id] || 0))[0];
-        if (pick && pick.ref) { pick.ref.s = pick.code + '/R'; repCount[pick.o.id] = (repCount[pick.o.id] || 0) + 1; }
-      }
-    }
-    return ch;
-  }
-  function preview() {
-    const ch = build(); const map = new Map(ch.map(c => [c.key, c.val])); const [y, m] = ymOf(mi); const days = monthDays(y, m);
-    el.querySelector('#prev').innerHTML = `<table class="xl" style="font-size:11px"><thead><tr><th style="background:#ccccff">g.</th>${store.ops().map(o => `<th style="background:${o.color};color:#fff;padding:2px 6px">${esc(o.surname.slice(0, 8))}</th>`).join('')}<th>TM</th><th>TP</th><th>TN</th></tr></thead><tbody>${days.map(d => {
-      let cov = { tm: 0, tp: 0, tn: 0 };
-      const tds = store.ops().map(o => { const c = map.get(o.id + '|' + d) || store.cell(o.id, d); const s = c && c.s ? shiftInfo(c.s) : null; (s && s.cnt || []).forEach(k => { if (k in cov) cov[k]++; }); const st = shiftStyle(c, d); const a = absStyle(c); return `<td style="background:${a && !(c && c.s) ? a.bg : st.bg};color:${a && !(c && c.s) ? a.fg : st.fg};font-weight:700;${map.has(o.id + '|' + d) ? 'outline:2px dashed #1f4bd8;outline-offset:-2px' : ''};width:56px">${esc(c ? (c.s || (a ? a.t : '')) : '')}</td>`; }).join('');
-      return `<tr class="${dow(d) === 0 ? 'dom' : ''}"><td style="color:#00f;font-weight:700;background:${dow(d) === 0 ? '#ccff33' : '#ccccff'}">${+d.slice(8)} ${WD[dow(d)]}</td>${tds}${['tm', 'tp', 'tn'].map(k => `<td style="background:${cov[k] === 1 ? '#00B050' : '#FF5050'};color:#fff">${cov[k]}</td>`).join('')}</tr>`;
+  const scoreHtml = r => { const s = r.summary; return `<div class="score"><div><b class="${s.gaps ? 'neg' : 'pos'}">${s.gaps}</b><small>buchi di copertura</small></div><div><b class="${s.conflicts ? 'neg' : 'pos'}">${s.conflicts}</b><small>conflitti con assenze</small></div><div><b>${s.changedLines}</b><small>cambi di linea</small></div><div><b>${s.repSpread}</b><small>scarto reperibilità</small></div></div>${r.conflicts.length ? `<div class="small muted mt">Lasciati vuoti: ${r.conflicts.slice(0, 6).map(c => esc(store.opName(c.op, true) + ' ' + fmtShort(c.d))).join(', ')}${r.conflicts.length > 6 ? '…' : ''}</div>` : ''}`; };
+  function previewHtml(y, m, r) {
+    const map = new Map(r.changes.map(c => [c.key, c.val])); const days = monthDays(y, m); const want = coverageWant();
+    return `<table class="xl" style="font-size:11px"><thead><tr><th style="background:#ccccff">g.</th>${store.ops().map(o => `<th style="background:${o.color};color:#fff;padding:2px 6px">${esc(o.surname.slice(0, 8))}</th>`).join('')}<th>TM</th><th>TP</th><th>TN</th></tr></thead><tbody>${days.map(d => {
+      const cov = { tm: 0, tp: 0, tn: 0 };
+      const tds = store.ops().map(o => { const c = map.get(o.id + '|' + d) || store.cell(o.id, d); const s = c && c.s ? shiftInfo(c.s) : null; (s && s.cnt || []).forEach(k => { if (k in cov) cov[k]++; }); const st = shiftStyle(c, d); const a = absStyle(c); return `<td style="background:${a && !(c && c.s) ? a.bg : st.bg};color:${a && !(c && c.s) ? a.fg : st.fg};font-weight:700;${map.has(o.id + '|' + d) ? 'outline:2px dashed #1f4bd8;outline-offset:-2px' : ''};width:52px">${esc(c ? (c.s || (a ? a.t : '')) : '')}</td>`; }).join('');
+      return `<tr class="${dow(d) === 0 ? 'dom' : ''}"><td style="color:#00f;font-weight:700;background:${dow(d) === 0 ? '#ccff33' : '#ccccff'}">${+d.slice(8)} ${WD[dow(d)]}</td>${tds}${['tm', 'tp', 'tn'].map(k => `<td style="background:${cov[k] === want[k] ? '#00B050' : cov[k] > want[k] ? '#FFC000' : '#FF5050'};color:#fff">${cov[k]}</td>`).join('')}</tr>`;
     }).join('')}</tbody></table><div class="small muted mt">Le caselle tratteggiate sono quelle che verranno scritte nella bozza.</div>`;
   }
   draw();
@@ -211,7 +190,7 @@ export function operators(el, params, ctx) {
       Object.assign(o, { surname: sur, name: cap(nam), label: v('#lab').value.trim(), color: v('#col').value, phone: v('#tel').value.trim(), email: v('#eml').value.trim(), active: v('#act').value === '1', weeklyMin: parseHM(v('#wk').value) || store.profile.weeklyMin, initBalance: parseHM(v('#ib').value) || 0, prevWeek: parseHM(v('#pw').value) || 0 });
       o.params = { ferie: +v('#fe').value || 0, ferieAP: +v('#fap').value || 0, permGg: +v('#pg').value || 0, permOre: +v('#po').value || 0 };
       if (!id) { o.id = sur.toLowerCase().replace(/[^a-z0-9]/g, '') || uid('op'); if (store.op(o.id)) o.id += '-' + uid().slice(-3); o.order = store.config.operators.length; }
-      const pin = v('#pin').value.trim(); if (/^\d{4}$/.test(pin)) o.pinHash = await sha256(o.id + ':' + pin); else if (pin) return toast('Il PIN deve avere 4 cifre', 'warn');
+      const pin = v('#pin').value.trim(); if (/^\d{4}$/.test(pin)) o.pinHash = await hashPass(pin); else if (pin) return toast('Il PIN deve avere 4 cifre', 'warn');
       if (removePin) delete o.pinHash;
       const list = id ? store.config.operators.map(x => x.id === id ? o : x) : store.config.operators.concat(o);
       await store.saveConfig({ operators: list }, id ? 'Operatore modificato: ' + sur : 'Nuovo operatore: ' + sur);
@@ -396,7 +375,12 @@ export function settings(el, params, ctx) {
     el.innerHTML = `<div class="page"><div class="page-h"><div><h2>Impostazioni</h2><p>Nome dell’app, password, archivio cloud, profilo autisti/infermieri, passaggio al nuovo anno.</p></div></div>
       <div class="col" style="gap:16px">
       <div class="card"><div class="card-h"><span class="ms ico">badge</span><h3>Intestazione</h3></div><div class="card-b col"><div class="grid g3"><label class="field">Nome dell’app<input class="inp" id="t1" value="${esc(c.app.title)}"></label><label class="field">Unità operativa<input class="inp" id="t2" value="${esc(c.app.unit || '')}"></label><label class="field">Ente<input class="inp" id="t3" value="${esc(c.app.entity || '')}"></label></div><div class="row"><span class="sp"></span><button class="btn pri" id="sv1">${ic('save')}Salva</button></div></div></div>
-      <div class="card"><div class="card-h"><span class="ms ico">key</span><h3>Password</h3></div><div class="card-b col"><div class="grid g2"><label class="field">Nuova password amministratore<input class="inp" type="password" id="p1" autocomplete="new-password"></label><label class="field">Password coordinatore <span class="hint">${c.coordHash ? 'impostata' : 'non impostata: il coordinatore usa quella dell’amministratore'}</span><input class="inp" type="password" id="p2" autocomplete="new-password"></label></div><div class="row"><span class="small muted">Le password sono salvate solo come impronta cifrata (SHA-256).</span><span class="sp"></span><button class="btn pri" id="sv2">${ic('save')}Aggiorna</button></div></div></div>
+      <div class="card"><div class="card-h"><span class="ms ico">key</span><h3>Password</h3></div><div class="card-b col"><div class="grid g2"><label class="field">Nuova password amministratore<input class="inp" type="password" id="p1" autocomplete="new-password"></label><label class="field">Password coordinatore <span class="hint">${c.coordHash ? 'impostata' : 'non impostata: il coordinatore usa quella dell’amministratore'}</span><input class="inp" type="password" id="p2" autocomplete="new-password"></label></div><div class="row"><span class="small muted">Le password sono salvate solo come impronta cifrata (PBKDF2, 150.000 passaggi, sale casuale). Cambiandole, chi era collegato deve rientrare.</span><span class="sp"></span><button class="btn pri" id="sv2">${ic('save')}Aggiorna</button></div></div></div>
+      <div class="card"><div class="card-h"><span class="ms ico">shield_lock</span><h3>Sicurezza degli accessi</h3></div><div class="card-b col">
+        <div class="grid g2"><label class="field">Chiudi l’area gestione dopo un’inattività di<select class="inp" id="idl">${[[0, 'mai'], [10, '10 minuti'], [15, '15 minuti'], [30, '30 minuti'], [60, '1 ora'], [120, '2 ore']].map(([v, l]) => `<option value="${v}" ${(c.rules.idleLockMin ?? 30) === v ? 'selected' : ''}>${l}</option>`).join('')}</select><span class="hint">Non vale sui dispositivi con “ricorda per 30 giorni”.</span></label>
+        <label class="field">PIN obbligatorio per gli operatori<select class="inp" id="pinreq"><option value="0" ${!c.rules.pinRequired ? 'selected' : ''}>No: il PIN è facoltativo</option><option value="1" ${c.rules.pinRequired ? 'selected' : ''}>Sì: chi non ha il PIN lo crea al primo accesso</option></select></label></div>
+        <label class="field">Email di coordinatori e amministratori <span class="hint">una per riga, con il ruolo: <code>nome@ente.sm admin</code> oppure <code>nome@ente.sm coord</code>. Con il cloud collegato possono entrare con un link via email verificato da Firebase.</span><textarea class="inp" id="mgr" style="min-height:70px;font-family:monospace;font-size:12.5px">${esc((c.managers || []).map(x => x.email + ' ' + x.role).join('\n'))}</textarea></label>
+        <div class="row"><span class="small muted grow">Dopo 5 tentativi sbagliati (password o PIN) l’accesso si blocca per un minuto, poi per tempi sempre più lunghi.</span><button class="btn pri" id="svsec">${ic('save')}Salva</button></div></div></div>
       <div class="card"><div class="card-h"><span class="ms ico">cloud</span><h3 class="grow">Archivio cloud (Firebase)</h3>${store.adapter.kind === 'cloud' ? '<span class="pill ok"><span class="dot ok"></span>Collegato</span>' : '<span class="pill warn">Solo su questo dispositivo</span>'}</div><div class="card-b col">
         <div class="note small">${ic('info')}<div>Con il cloud tutti gli operatori vedono gli stessi turni in tempo reale, ricevono le notifiche e il coordinatore riceve le richieste. Serve un progetto Firebase <b>dedicato</b> (gratuito): <a href="https://console.firebase.google.com/" target="_blank" rel="noopener">console.firebase.google.com</a> → Aggiungi progetto → app Web → copia la configurazione qui sotto; attiva <i>Authentication › Anonimo</i> e <i>Firestore</i>, poi incolla le regole del file <code>firebase/firestore.rules</code> del repository.</div></div>
         <label class="field">Configurazione Firebase (JSON o il blocco <code>firebaseConfig</code>)<textarea class="inp" id="fb" style="min-height:120px;font-family:monospace;font-size:12px" placeholder='{ "apiKey": "...", "authDomain": "...", "projectId": "...", "appId": "..." }'>${cloud.firebase ? esc(JSON.stringify(cloud.firebase, null, 2)) : ''}</textarea></label>
@@ -409,7 +393,7 @@ export function settings(el, params, ctx) {
       </div></div>`;
     const v = s => el.querySelector(s);
     v('#sv1').onclick = async () => { await store.saveConfig({ app: Object.assign({}, c.app, { title: v('#t1').value.trim() || c.app.title, unit: v('#t2').value.trim(), entity: v('#t3').value.trim() }) }, 'Intestazione'); toast('Salvato'); };
-    v('#sv2').onclick = async () => { const a = v('#p1').value, b = v('#p2').value; const patch = {}; if (a) { if (a.length < 6) return toast('Almeno 6 caratteri', 'warn'); patch.adminHash = await sha256('gt2:' + a); } if (b) { if (b.length < 4) return toast('Password coordinatore troppo corta', 'warn'); patch.coordHash = await sha256('gt2:' + b); } if (!a && !b) return; await store.saveConfig(patch, 'Password aggiornate'); if (patch.adminHash) store.setAuth('admin', patch.adminHash); toast('Password aggiornate'); draw(); };
+    v('#sv2').onclick = async () => { const a = v('#p1').value, b = v('#p2').value; const patch = {}; if (a) { if (a.length < 8 || !/\d/.test(a) || !/[a-z]/i.test(a)) return toast('Almeno 8 caratteri con lettere e numeri', 'warn'); patch.adminHash = await hashPass(a); } if (b) { if (b.length < 8) return toast('Password coordinatore: almeno 8 caratteri', 'warn'); patch.coordHash = await hashPass(b); } if (!a && !b) return; await store.saveConfig(patch, 'Password aggiornate'); if (patch.adminHash) store.setAuth('admin', patch.adminHash); toast('Password aggiornate'); draw(); };
     const parseCfg = () => { const t = v('#fb').value.trim(); if (!t) return null; let j = t.replace(/^[^{]*/, '').replace(/[^}]*$/, ''); try { return JSON.parse(j); } catch (e) { try { return Function('"use strict";return (' + j + ')')(); } catch (e2) { return null; } } };
     v('#cfgfile').onclick = () => { const f = parseCfg(); if (!f) return toast('Incolla prima la configurazione', 'warn'); download('cloud.json', JSON.stringify({ enabled: true, profile: v('#pf').value, ns: v('#ns').value.trim() || 'gt2', firebase: f }, null, 2), 'application/json'); };
     if (v('#off')) v('#off').onclick = async () => { if (!await confirmBox('Scollegare il cloud?', 'Su questo dispositivo si tornerà all’archivio locale.')) return; store.setCloud({ enabled: false }); location.reload(); };
@@ -433,6 +417,10 @@ export function settings(el, params, ctx) {
     };
     v('#pf').onchange = e => { if (e.target.value !== store.profile.key) confirmBox('Cambiare profilo?', 'Il profilo “infermieri” usa un archivio separato (puoi tornare agli autisti quando vuoi). L’app si ricarica.').then(ok => { if (ok) { store.setProfile(e.target.value); const cc = store.lsGet('gt2:cloud'); if (cc) { cc.profile = e.target.value; cc.ns = e.target.value === 'autisti' ? 'gt2' : 'gt2inf'; store.setCloud(cc); } location.reload(); } else e.target.value = store.profile.key; }); };
     v('#ny').onclick = () => newYear();
+    v('#svsec').onclick = async () => {
+      const managers = v('#mgr').value.split('\n').map(l => l.trim().split(/\s+/)).filter(x => /@/.test(x[0] || '')).map(([email, role]) => ({ email: email.toLowerCase(), role: role === 'admin' ? 'admin' : 'coord' }));
+      await store.saveConfig({ managers, rules: Object.assign({}, c.rules, { idleLockMin: +v('#idl').value, pinRequired: v('#pinreq').value === '1' }) }, 'Sicurezza degli accessi'); toast('Impostazioni di sicurezza salvate');
+    };
     v('#rs').onclick = async () => { if (!await confirmBox('Azzerare tutto?', 'Verranno cancellati turni, operatori, richieste e storico di questo archivio. Viene prima scaricato un backup.', { danger: true, ok: 'Azzera' })) return; download(`backup-prima-azzeramento-${today()}.json`, JSON.stringify(await store.exportAll()), 'application/json'); await store.resetAll(); location.reload(); };
   };
   draw();

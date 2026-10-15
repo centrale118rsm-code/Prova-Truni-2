@@ -13,7 +13,7 @@
 import { store } from '../store.js';
 import { esc, MONTHS, WD, WD_LONG, today, addDays, fmtDate, hm, dow, mondayOf, pad, yearOf, monthIdx, rangeDays, daysBetween } from '../util.js';
 import { ic, modal, toast, avatar, opChip, cap1 } from '../ui.js';
-import { shiftInfo, absInfo, repOf, repBands, workedMin, creditMin, weeks, hasRep } from '../calc.js';
+import { shiftInfo, absInfo, repOf, repBands, workedMin, creditMin, weeks, hasRep, isSmontoCode } from '../calc.js';
 import { exportICS } from './me.js';
 
 // Categorie della giornata, con una palette propria (non quella del foglio)
@@ -36,7 +36,7 @@ export function catOf(c) {
   }
   const s = c.s ? shiftInfo(c.s) : null; const code = (c.s || '').trim();
   if (!s) return 'vuoto';
-  if (code === 'SM') return 'smonto';
+  if (isSmontoCode(code)) return 'smonto';
   if (s.group === 'R') return 'riposo';
   if (s.group === 'X') return 'rep';
   const cnt = s.cnt || [];
@@ -167,7 +167,7 @@ function weekRow(op, d, mate) {
   return `<button class="ms-row ${d === tm ? 'is-today' : ''} ${store.isFestivo(d) ? 'is-fest' : ''}" data-day="${d}">
     <span class="ms-day"><b>${WD[dow(d)]}</b><span>${+d.slice(8)}</span></span>
     <span class="ms-track">${[6, 12, 18].map(h => `<i class="ms-grid" style="left:${h / 24 * 100}%"></i>`).join('')}${allDay}${bars}${ghost}${now}</span>
-    <span class="ms-tail">${mate ? (overlap ? `<span class="pill acc" title="In turno insieme">${ic('group')}</span>` : '') : (hasRep(c) ? `<span class="pill" style="background:#FCE7F3;color:#DB2777">REP</span>` : '')}<span class="small muted">${workedMin(c) + creditMin(c) ? hm(workedMin(c) + creditMin(c)) : ''}</span></span></button>`;
+    <span class="ms-tail">${mate ? (overlap ? `<span class="pill acc" title="In turno insieme">${ic('group')}</span>` : '') : (hasRep(c) ? `<span class="pill" style="background:#FCE7F3;color:#DB2777">REP</span>` : '')}<span class="small muted">${workedMin(c) + creditMin(c, d) ? hm(workedMin(c) + creditMin(c, d)) : ''}</span></span></button>`;
 }
 
 function mosaic(op, Y) {

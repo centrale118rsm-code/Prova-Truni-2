@@ -8,20 +8,20 @@
 //  • turno / diurno / casa (GRAFICO TURNI)
 // ═══════════════════════════════════════════════════════════════════════════
 import { store } from './store.js';
-import { DEFAULT_SHIFTS, DEFAULT_ABSENCES, DEFAULT_REP_BANDS, CYCLE, LINE_COLORS } from './profile.js';
+import { DEFAULT_SHIFTS, DEFAULT_ABSENCES, DEFAULT_REP_BANDS, LINE_COLORS } from './profile.js';
 import { addDays, daysBetween, dow, mondayOf, rangeDays, monthDays, ym, yearOf, hm, fmtShort } from './util.js';
 
 const EPOCH = '2026-01-01';   // giorno 0 per i colori delle linee (come la riga 8 del foglio)
 
 let _sh = null, _shKey = null, _ab = null, _abKey = null;
 export function shifts() {
-  const list = store.config && store.config.shifts || DEFAULT_SHIFTS;
+  const list = store.config && store.config.shifts || store.profile.shifts || DEFAULT_SHIFTS;
   if (_shKey !== list) { _shKey = list; _sh = new Map(list.map(s => [s.code, s])); }
   return _sh;
 }
 export const shiftList = () => [...shifts().values()];
 export function absences() {
-  const list = store.config && store.config.absences || DEFAULT_ABSENCES;
+  const list = store.config && store.config.absences || store.profile.absences || DEFAULT_ABSENCES;
   if (_abKey !== list) { _abKey = list; _ab = new Map(list.map(a => [a.code, a])); }
   return _ab;
 }
@@ -56,12 +56,28 @@ export function lineOf(code, date) {
   return ((dayIndex(date) - s.pos) % 5 + 5) % 5;
 }
 export const lineColor = (code, date) => { const l = lineOf(code, date); return l == null ? null : LINE_COLORS[l]; };
-export const codeForLine = (line, date) => CYCLE[((dayIndex(date) - line) % 5 + 5) % 5];
+// Il ciclo del profilo: per ogni posizione il primo codice "semplice" (POM, MAT, NOTT, SM, R oppure P, M, N, S, R)
+export function cycle() { const out = []; for (let p = 0; p < 5; p++) { const s = shiftList().find(x => x.pos === p && !x.rep && (x.cnt || []).length <= 1); out.push(s ? s.code : ''); } return out; }
+export const codeForLine = (line, date) => cycle()[((dayIndex(date) - line) % 5 + 5) % 5];
+// Codici diurni del profilo: mattina (dm), pomeriggio (dp), riposo (rip)
+export const diurnoCode = k => { const s = shiftList().find(x => (x.cnt || []).length === 1 && x.cnt[0] === k && !x.rep); return s ? s.code : ''; };
+export const repCodeOf = code => { const c = code + '/R'; return shifts().has(c) ? c : null; };
+export const isNightCode = code => { const s = shiftInfo(code); return !!(s && (s.cnt || []).includes('tn')); };
+export const isSmontoCode = code => { const s = shiftInfo(code); return !!(s && s.pos === 3 && s.group === 'T'); };
+export const coverageWant = () => Object.assign({ tm: 1, tp: 1, tn: 1 }, store.profile.coverageWant || {}, (store.config && store.config.rules && store.config.rules.coverageWant) || {});
 
 // ── Ore ─────────────────────────────────────────────────────────────────
 export const workedMin = c => { if (!c || !c.s) return 0; const s = shiftInfo(c.s); return s ? (s.min || 0) : 0; };
-export const creditMin = c => !c ? 0 : (c.cr != null ? c.cr : (c.ph ? c.ph * 60 : 0));
-export const dayMin = c => workedMin(c) + creditMin(c);
+// Ore accreditate: valore scritto nella casella, oppure ore di permesso, oppure (profilo infermieri)
+// le ore di contratto del giorno per un'assenza giustificata: ore settimanali ÷ 6 da lunedì a sabato.
+export function creditMin(c, d) {
+  if (!c) return 0;
+  if (c.cr != null) return c.cr;
+  if (c.ph) return c.ph * 60;
+  if (c.a && d && store.profile.creditMode === 'six' && !isRest(c) && !(c.s && workedMin(c))) return dow(d) === 0 ? 0 : Math.round(store.profile.weeklyMin / 6);
+  return 0;
+}
+export const dayMin = (c, d) => workedMin(c) + creditMin(c, d);
 export const isRest = c => !!(c && c.s && /^r/i.test(c.s.trim()) && !c.s.includes('/R'));   // "R*" come COUNTIFS (non distingue maiuscole)
 export const isWork = c => { const s = c && c.s && shiftInfo(c.s); return !!(s && (s.group === 'T' || s.group === 'D') && s.min > 0); };
 export const hasRep = c => !!(c && c.s && c.s.includes('/R'));
@@ -71,11 +87,12 @@ export function expectedCode(op, date) {
   for (let k = 1; k <= 12; k++) for (const d of [addDays(date, -k), addDays(date, k)]) {
     const c = store.cell(op, d); const l = c && c.s ? lineOf(c.s, d) : null;
     if (l != null) return codeForLine(l, date);
-    if (c && c.s && shiftInfo(c.s).group === 'D') { const wd = dow(date); return wd === 0 || wd === 6 ? 'ripo' : 'matt'; }
+    if (c && c.s && shiftInfo(c.s).group === 'D') { const wd = dow(date); return wd === 0 || wd === 6 ? diurnoCode('rip') : diurnoCode('dm'); }
   }
   return null;
 }
 export function suggestedCredit(op, date, prevCell) {
+  if (store.profile.creditMode === 'six') return dow(date) === 0 ? 0 : Math.round(((store.op(op) || {}).weeklyMin || store.profile.weeklyMin) / 6);
   if (prevCell && prevCell.s && !isRest(prevCell)) { const m = workedMin(prevCell); if (m) return m; }
   const e = expectedCode(op, date); if (e) return (shiftInfo(e) || {}).min || 0;
   const wd = dow(date); return wd === 0 || wd === 6 ? 0 : store.profile.contractDayMin;
@@ -92,12 +109,12 @@ export function weeks(op, year = store.config.year) {
     for (let i = 0; i < 7; i++) {
       const d = addDays(m, i);
       if (yearOf(d) < year) continue;
-      const c = store.cell(op, d); const w = workedMin(c), cr = creditMin(c);
+      const c = store.cell(op, d); const w = workedMin(c), cr = creditMin(c, d);
       worked += w; credit += cr; days.push({ d, c, w, cr });
     }
     if (m < `${year}-01-01`) {
       const prevHas = rangeDays(m, `${year - 1}-12-31`).some(d => store.cell(op, d));
-      if (prevHas) for (const d of rangeDays(m, `${year - 1}-12-31`)) { const c = store.cell(op, d); worked += workedMin(c); credit += creditMin(c); }
+      if (prevHas) for (const d of rangeDays(m, `${year - 1}-12-31`)) { const c = store.cell(op, d); worked += workedMin(c); credit += creditMin(c, d); }
       else credit += o.prevWeek || 0;
     }
     const total = worked + credit;
@@ -113,7 +130,7 @@ export function balanceAt(op, date) {
 }
 export function monthHours(op, y, m) {
   let worked = 0, credit = 0;
-  for (const d of monthDays(y, m)) { const c = store.cell(op, d); worked += workedMin(c); credit += creditMin(c); }
+  for (const d of monthDays(y, m)) { const c = store.cell(op, d); worked += workedMin(c); credit += creditMin(c, d); }
   return { worked, credit, total: worked + credit };
 }
 
@@ -152,8 +169,8 @@ export function yearStats(op, year = store.config.year) {
     else if (s && s.group === 'D' && s.min > 0) st.diurno++;
     if (c && c.s) {
       const code = c.s.trim();
-      if (code === 'NOTT' || code === 'MAT+N' || code === 'matt+N') st.notti++;
-      if (code === 'SM') st.smonti++;
+      if (isNightCode(code)) st.notti++;
+      if (isSmontoCode(code)) st.smonti++;
       if (s && s.cnt && (s.cnt.includes('tm') || s.cnt.includes('dm'))) st.mattine++;
       if (s && s.cnt && (s.cnt.includes('tp') || s.cnt.includes('dp'))) st.pomeriggi++;
       if (isWork(c) && (wd === 0 || wd === 6)) { st.weekend++; if (wd === 6) st.sabati++; else st.domeniche++; }
@@ -167,7 +184,7 @@ export function yearStats(op, year = store.config.year) {
       if (c && c.a === 'nl') st.fnl++;
       st.oreFestLav += workedMin(c);
     }
-    st.worked += workedMin(c); st.credit += creditMin(c);
+    st.worked += workedMin(c); st.credit += creditMin(c, d);
     if (c && c.a) {
       const a = String(c.a); const k = absKind(c);
       st.absByCode[a.toLowerCase()] = (st.absByCode[a.toLowerCase()] || 0) + 1;
@@ -204,7 +221,7 @@ export function coverage(date) {
 }
 // colori della scala come la formattazione condizionale del foglio
 export function covStyle(key, v, cov) {
-  if (key === 'tm' || key === 'tp' || key === 'tn') return v === 1 ? { bg: '#00B050', fg: '#00B050' } : { bg: '#FF5050', fg: '#fff' };
+  if (key === 'tm' || key === 'tp' || key === 'tn') { const w = coverageWant()[key]; return v === w ? { bg: '#00B050', fg: w === 1 ? '#00B050' : '#fff' } : v > w ? { bg: '#FFC000', fg: '#000' } : { bg: '#FF5050', fg: '#fff' }; }
   if (key === 'dm' || key === 'dp') {
     const other = key === 'dm' ? cov.dp : cov.dm;
     if (v === 2 && other === 0) return { bg: '#FF0000', fg: '#fff' };
@@ -224,9 +241,11 @@ export function validate(from, to) {
     const cov = coverage(d);
     const lbl = fmtShort(d);
     if (rules.requireCoverage !== false) {
+      const want = coverageWant();
       for (const [k, name] of [['tm', 'mattina turnista'], ['tp', 'pomeriggio turnista'], ['tn', 'notte']]) {
         if (cov[k] === 0) issues.push({ date: d, level: 'err', cat: 'Copertura', msg: `${lbl}: manca la ${name}` });
-        else if (cov[k] > 1) issues.push({ date: d, level: 'err', cat: 'Copertura', msg: `${lbl}: ${cov[k]} operatori di ${name}` });
+        else if (cov[k] < want[k]) issues.push({ date: d, level: 'err', cat: 'Copertura', msg: `${lbl}: ${name} con ${cov[k]} su ${want[k]}` });
+        else if (cov[k] > want[k]) issues.push({ date: d, level: want[k] === 1 ? 'err' : 'warn', cat: 'Copertura', msg: `${lbl}: ${cov[k]} operatori di ${name} (previsti ${want[k]})` });
       }
       if (cov.rep === 0) issues.push({ date: d, level: 'warn', cat: 'Reperibilità', msg: `${lbl}: nessun reperibile (/R)` });
       if (cov.rep > 1) issues.push({ date: d, level: 'warn', cat: 'Reperibilità', msg: `${lbl}: ${cov.rep} reperibili nello stesso giorno` });
@@ -240,14 +259,14 @@ export function validate(from, to) {
       if (!c.s) continue;
       const s = shiftInfo(c.s);
       if (s.unknown) issues.push({ date: d, op: o.id, level: 'warn', cat: 'Codici', msg: `${lbl}: ${nm} ha un codice non in tabella («${c.s}»)` });
-      if (s.group === 'T' && !['R', 'SM'].includes(c.s.trim())) { (seen[c.s.trim()] = seen[c.s.trim()] || []).push(nm); }
+      if (s.group === 'T' && coverageWant().tm === 1 && !isSmontoCode(c.s) && c.s.trim() !== 'R') { (seen[c.s.trim()] = seen[c.s.trim()] || []).push(nm); }
       if (s.needs) for (const [k, n] of Object.entries(s.needs)) if ((cov[k] || 0) < n) issues.push({ date: d, op: o.id, level: 'err', cat: 'Regole', msg: `${lbl}: ${nm} «${c.s}» richiede almeno ${n} diurni (${k === 'dm' ? 'mattina' : 'pomeriggio'})` });
       const nx = store.cell(o.id, addDays(d, 1));
-      if (rules.nightThenSmonto !== false && (c.s.trim() === 'NOTT' || c.s.trim() === 'MAT+N') && !(nx && (nx.s && nx.s.trim() === 'SM' || nx.a))) issues.push({ date: d, op: o.id, level: 'warn', cat: 'Sequenze', msg: `${lbl}: ${nm} dopo la notte non ha lo smonto` });
+      if (rules.nightThenSmonto !== false && isNightCode(c.s) && s.group === 'T' && !(nx && (nx.s && isSmontoCode(nx.s) || nx.a))) issues.push({ date: d, op: o.id, level: 'warn', cat: 'Sequenze', msg: `${lbl}: ${nm} dopo la notte non ha lo smonto` });
       // riposo tra un turno e il successivo
       if (nx && nx.s && s.to && (s.group === 'T' || s.group === 'D')) {
         const ns = shiftInfo(nx.s);
-        if (ns && ns.from && (ns.group === 'T' || ns.group === 'D') && nx.s.trim() !== 'SM') {
+        if (ns && ns.from && (ns.group === 'T' || ns.group === 'D') && !isSmontoCode(nx.s)) {
           const gap = 1440 - toMin(s.to) + toMin(ns.from);
           if (gap < (rules.minRestHours || 11) * 60) issues.push({ date: d, op: o.id, level: 'warn', cat: 'Riposo minimo', msg: `${lbl}: ${nm} solo ${hm(gap)} h tra «${c.s}» e «${nx.s}»` });
         }
@@ -261,7 +280,7 @@ export function validate(from, to) {
     let run = 0, startRun = null;
     for (const d of rangeDays(addDays(from, -maxC), to)) {
       const c = store.cell(o.id, d);
-      if (isWork(c) || (c && c.s && c.s.trim() === 'SM')) { if (!run) startRun = d; run++; if (run === maxC + 1 && d >= from) issues.push({ date: d, op: o.id, level: 'warn', cat: 'Riposo minimo', msg: `${fmtShort(d)}: ${store.opName(o.id, true)} ha lavorato ${run} giorni di fila (dal ${fmtShort(startRun)})` }); }
+      if (isWork(c) || (c && c.s && isSmontoCode(c.s))) { if (!run) startRun = d; run++; if (run === maxC + 1 && d >= from) issues.push({ date: d, op: o.id, level: 'warn', cat: 'Riposo minimo', msg: `${fmtShort(d)}: ${store.opName(o.id, true)} ha lavorato ${run} giorni di fila (dal ${fmtShort(startRun)})` }); }
       else run = 0;
     }
   }

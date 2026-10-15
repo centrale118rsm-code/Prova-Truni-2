@@ -83,6 +83,25 @@ export function contrast(hex) {
   return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? '#111' : '#fff';
 }
 
+// Password e PIN: PBKDF2 (150.000 passaggi, sale casuale). Le vecchie impronte SHA-256 restano valide
+// e vengono convertite al primo accesso riuscito.
+const toHex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+const fromHex = h => new Uint8Array(h.match(/../g).map(x => parseInt(x, 16)));
+export async function pbkdf2Hex(pass, saltHex, iter = 150000) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveBits']);
+  return toHex(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: fromHex(saltHex), iterations: iter, hash: 'SHA-256' }, key, 256));
+}
+export async function hashPass(pass) {
+  const salt = toHex(crypto.getRandomValues(new Uint8Array(16)));
+  return `pbkdf2$150000$${salt}$${await pbkdf2Hex(pass, salt, 150000)}`;
+}
+export async function verifyPass(pass, stored, legacyPrefix = '') {
+  if (!stored) return false;
+  if (stored.startsWith('pbkdf2$')) { const [, it, salt, h] = stored.split('$'); return (await pbkdf2Hex(pass, salt, +it)) === h; }
+  return (await sha256(legacyPrefix + pass)) === stored;
+}
+export const fingerprint = stored => String(stored || '').slice(-24);
+
 export async function sha256(text) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');

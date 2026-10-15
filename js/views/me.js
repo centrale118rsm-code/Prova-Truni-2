@@ -108,29 +108,69 @@ function dayInfo(id, d) {
     title: fmtDate(d, { wd: true, year: true }), icon: 'event',
     body: `<div class="col"><div style="font-size:18px">${chipFor(c, d, { big: true })}</div><div>${esc(describe(c))}</div>
     ${c && c.n ? `<div class="note">${ic('sticky_note_2')}<div>${esc(c.n)}</div></div>` : ''}
-    <div class="grid g2"><div class="card kpi"><span class="k-l">Ore</span><span class="k-v">${hm(workedMin(c) + creditMin(c))}</span></div><div class="card kpi"><span class="k-l">Reperibile</span><span style="font-weight:700">${r.map((x, i) => x === id ? bands[i].label : '').filter(Boolean).join(', ') || 'no'}</span></div></div>
+    <div class="grid g2"><div class="card kpi"><span class="k-l">Ore</span><span class="k-v">${hm(workedMin(c) + creditMin(c, d))}</span></div><div class="card kpi"><span class="k-l">Reperibile</span><span style="font-weight:700">${r.map((x, i) => x === id ? bands[i].label : '').filter(Boolean).join(', ') || 'no'}</span></div></div>
     <div class="sec-t" style="margin:4px 0">Colleghi in servizio</div><div class="col" style="gap:6px">${mates.map(z => `<div class="row">${opChip(z.x.id, { full: true })}<span class="sp"></span>${chipFor(z.c, d)}</div>`).join('') || '<span class="muted">nessuno</span>'}</div></div>`
   });
 }
 
 // ── Calendario .ics per il telefono ──
-export function exportICS(id) {
+// Testo del calendario .ics di un operatore: turni con l'orario vero, assenze come giornate intere,
+// fasce di reperibilità come eventi a parte. Lo usa sia il pulsante "scarica" sia il motore che
+// pubblica i calendari in abbonamento (cartella cal/).
+export function buildICS(id, fromDays = 31) {
   const o = store.op(id); const y = store.config.year;
-  const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Turni118//IT', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', `X-WR-CALNAME:Turni ${o.name} ${cap1(o.surname)}`, 'X-WR-TIMEZONE:Europe/Rome'];
+  const name = `${o.name ? o.name + ' ' : ''}${cap1(o.surname)}`;
+  const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Turni118//IT', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', `X-WR-CALNAME:Turni ${name}`, 'X-WR-TIMEZONE:Europe/Rome', 'REFRESH-INTERVAL;VALUE=DURATION:PT1H', 'X-PUBLISHED-TTL:PT1H'];
   const dt = (d, t) => d.replace(/-/g, '') + 'T' + t.replace(':', '') + '00';
-  for (let d = addDays(today(), -31); d <= `${y + 1}-01-31`; d = addDays(d, 1)) {
-    const c = store.cell(id, d); if (!c) continue;
-    const s = c.s ? shiftInfo(c.s) : null;
-    const uidv = `${id}-${d}@turni118`;
-    if (s && s.from && s.to) {
-      const end = s.to === '24:00' ? dt(addDays(d, 1), '00:00') : dt(d, s.to);
-      L.push('BEGIN:VEVENT', `UID:${uidv}`, `DTSTAMP:${dt(today(), '00:00')}`, `DTSTART;TZID=Europe/Rome:${dt(d, s.from)}`, `DTEND;TZID=Europe/Rome:${end}`, `SUMMARY:${c.s}${hasRep(c) ? ' (reperibile)' : ''}`, `DESCRIPTION:${describe(c).replace(/[,;]/g, ' ')}`, 'END:VEVENT');
-    } else if (c.s || c.a) {
-      L.push('BEGIN:VEVENT', `UID:${uidv}`, `DTSTAMP:${dt(today(), '00:00')}`, `DTSTART;VALUE=DATE:${d.replace(/-/g, '')}`, `DTEND;VALUE=DATE:${addDays(d, 1).replace(/-/g, '')}`, `SUMMARY:${c.a ? absInfo(c.a).label : c.s}`, 'TRANSP:TRANSPARENT', 'END:VEVENT');
+  const esc2 = t => String(t).replace(/[,;\\]/g, m => '\\' + m);
+  const bands = repBands();
+  for (let d = addDays(today(), -fromDays); d <= `${y + 1}-01-31`; d = addDays(d, 1)) {
+    const c = store.cell(id, d);
+    if (c) {
+      const s = c.s ? shiftInfo(c.s) : null;
+      const uidv = `${id}-${d}@turni118`;
+      if (s && s.from && s.to && s.min > 0) {
+        const end = s.to === '24:00' ? dt(addDays(d, 1), '00:00') : dt(d, s.to);
+        L.push('BEGIN:VEVENT', `UID:${uidv}`, `DTSTAMP:${dt(today(), '00:00')}`, `DTSTART;TZID=Europe/Rome:${dt(d, s.from)}`, `DTEND;TZID=Europe/Rome:${end}`, `SUMMARY:${esc2(c.s)} · ${esc2(s.label)}`, `DESCRIPTION:${esc2(describe(c))}`, 'BEGIN:VALARM', 'TRIGGER:-PT60M', 'ACTION:DISPLAY', `DESCRIPTION:Turno ${esc2(c.s)} tra un'ora`, 'END:VALARM', 'END:VEVENT');
+      } else if (c.s || c.a) {
+        L.push('BEGIN:VEVENT', `UID:${uidv}`, `DTSTAMP:${dt(today(), '00:00')}`, `DTSTART;VALUE=DATE:${d.replace(/-/g, '')}`, `DTEND;VALUE=DATE:${addDays(d, 1).replace(/-/g, '')}`, `SUMMARY:${esc2(c.a ? absInfo(c.a).label : (s ? s.label : c.s))}`, 'TRANSP:TRANSPARENT', 'END:VEVENT');
+      }
+    }
+    // reperibilità: fasce consecutive dello stesso giorno in un unico evento
+    const r = repOf(d); let i = 0;
+    while (i < 4) {
+      if (r[i] !== id) { i++; continue; }
+      let j = i; while (j + 1 < 4 && r[j + 1] === id) j++;
+      const to = bands[j].to === '24:00' ? dt(addDays(d, 1), '00:00') : dt(d, bands[j].to);
+      L.push('BEGIN:VEVENT', `UID:${id}-${d}-rep${i}@turni118`, `DTSTAMP:${dt(today(), '00:00')}`, `DTSTART;TZID=Europe/Rome:${dt(d, bands[i].from)}`, `DTEND;TZID=Europe/Rome:${to}`, 'SUMMARY:Reperibilità', 'TRANSP:TRANSPARENT', 'END:VEVENT');
+      i = j + 1;
     }
   }
   L.push('END:VCALENDAR');
-  download(`turni-${o.surname.toLowerCase()}.ics`, L.join('\r\n'), 'text/calendar');
+  return L.join('\r\n') + '\r\n';
+}
+// Link del calendario in abbonamento (lo pubblica il motore quando il cloud è collegato)
+export function calendarUrl(id) {
+  const base = location.href.split(/[?#]/)[0].replace(/index\.html$/, '');
+  return `${base}cal/${store.profile.key}/${id}.ics`;
+}
+export function exportICS(id) {
+  const o = store.op(id);
+  if (store.cloudCfg && store.cloudCfg.enabled && store.cloudCfg.calendars) {
+    const url = calendarUrl(id); const web = url.replace(/^https?:/, 'webcal:');
+    const m = modal({
+      title: 'Calendario sul telefono', icon: 'event_upcoming', foot: '',
+      body: `<div class="col"><div>Abbonati al tuo calendario: si aggiorna da solo quando cambiano i turni (circa ogni ora), con un promemoria un’ora prima di ogni turno.</div>
+      <a class="btn pri lg" href="${esc(web)}">${ic('add_task')}Aggiungi al calendario del telefono</a>
+      <div class="small muted"><b>Google Calendar</b> (computer): Altri calendari → + → Da URL, e incolla:</div>
+      <div class="row"><input class="inp" readonly value="${esc(url)}" id="cu"><button class="btn" id="cc">${ic('content_copy')}</button></div>
+      <button class="btn" id="dl">${ic('download')}Oppure scarica il file una volta</button></div>`
+    });
+    m.body.querySelector('#cc').onclick = async () => { try { await navigator.clipboard.writeText(url); toast('Link copiato'); } catch (e) { m.body.querySelector('#cu').select(); } };
+    m.body.querySelector('#dl').onclick = () => { download(`turni-${o.surname.toLowerCase()}.ics`, buildICS(id), 'text/calendar'); m.close(); };
+    return;
+  }
+  download(`turni-${o.surname.toLowerCase()}.ics`, buildICS(id), 'text/calendar');
   toast('File calendario scaricato: aprilo per aggiungerlo al telefono');
 }
 
@@ -192,7 +232,7 @@ function band(code) {
 function conflict(id, d) {
   const a = (store.agenda[id] || {})[d]; if (!a || !a.p) return false;
   const c = store.cell(id, d); if (!c || !c.s || !workedMin(c)) return false;
-  const mine = band(c.s.replace('/R', '')) || (c.s === 'SM' ? 'n' : null);
+  const mine = band(c.s.replace('/R', '')) || (/^(SM|S)$/.test(c.s.trim()) ? 'n' : null);
   return mine && mine === band(a.p);
 }
 

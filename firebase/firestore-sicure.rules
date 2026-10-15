@@ -1,0 +1,37 @@
+rules_version = '2';
+
+// Regole SICURE: i turni e la configurazione li scrive solo chi è entrato con il link via email
+// ed è nell'elenco "managers" della configurazione (Impostazioni › Sicurezza degli accessi).
+// Gli operatori (accesso anonimo) possono solo leggere, fare richieste, aggiornare la propria
+// agenda, segnare le notifiche come lette e iscriversi alle notifiche push.
+// Prima di attivarle: entra almeno una volta con il link via email come amministratore.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function ns(c) { return c.matches('^gt2(inf)?_(data|requests|log|notif|sess|snap|push)$'); }
+    function email() { return request.auth.token.email != null ? request.auth.token.email.lower() : ''; }
+    function isManager(coll) {
+      let cfg = get(/databases/$(database)/documents/$(coll)/config).data;
+      return email() != '' && request.auth.token.email_verified == true
+        && cfg.managers != null && cfg.managers.hasAny([{ 'email': email(), 'role': 'admin' }, { 'email': email(), 'role': 'coord' }]);
+    }
+
+    match /{coll}/{doc} {
+      allow read: if signedIn() && ns(coll);
+      // configurazione e mesi dei turni: solo coordinatori e amministratori verificati
+      // (il primissimo documento config può crearlo chiunque, per l'avvio)
+      allow create: if signedIn() && ns(coll) && (
+        (coll.matches('.*_data$') && doc == 'config' && !exists(/databases/$(database)/documents/$(coll)/config))
+        || (coll.matches('.*_data$') && doc.matches('^agenda_[A-Za-z0-9_-]+$'))
+        || (coll.matches('.*_data$') && doc.matches('^m_[0-9]{4}-[0-9]{2}$') && isManager(coll))
+        || coll.matches('.*_(requests|notif|sess|push|log)$')
+        || (coll.matches('.*_snap$') && isManager(coll.replace('_snap', '_data'))));
+      allow update: if signedIn() && ns(coll) && (
+        (coll.matches('.*_data$') && doc.matches('^(config|m_[0-9]{4}-[0-9]{2})$') && isManager(coll))
+        || (coll.matches('.*_data$') && doc.matches('^agenda_[A-Za-z0-9_-]+$'))
+        || coll.matches('.*_(requests|notif|sess|push)$'));
+      allow delete: if signedIn() && (coll.matches('^gt2(inf)?_(notif|push)$')
+        || (coll.matches('^gt2(inf)?_(requests|snap)$') && isManager(coll.replace('_requests', '_data').replace('_snap', '_data'))));
+    }
+  }
+}

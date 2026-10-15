@@ -23,6 +23,29 @@ Si apre da qualsiasi browser, si installa sul telefono come app e funziona anche
 **Gestione (coordinatore / amministratore)**
 - Pannello di controllo, **Modifica turni** (tavolozza, pennello, selezione multipla, copia/incolla, scrittura veloce dei codici, annulla/ripeti, bozza e pubblicazione con notifica agli interessati), **bozza automatica** del mese a 5 linee, **controlli** (coperture, doppioni, smonto dopo la notte, riposo minimo, giorni consecutivi…), richieste da gestire, operatori (colori, spettanze, saldo iniziale, PIN), codici/orari/regole, **stampe e moduli**, **import dal file Excel** e export .xlsx, backup e copie di sicurezza, storico modifiche con ripristino, accessi, impostazioni, passaggio al nuovo anno.
 
+## Due reparti nella stessa app
+- **Autisti** (rosso) e **Infermieri** (verde acqua): si passa dall’uno all’altro con il selettore in alto nella barra laterale, con la pillola nell’intestazione, dalla schermata “Chi sei?” o con **Alt+A / Alt+I**.
+- Link diretti: `…/?p=autisti` e `…/?p=infermieri` (comodi da mandare su WhatsApp a ciascun gruppo).
+- Ogni reparto ha i suoi codici (autisti: MAT, POM, NOTT, SM…; infermieri: M, P, N, S…), le sue coperture (1 o 3 per fascia), il suo modo di accreditare le assenze e il suo archivio separato.
+- Turni 2026 precaricati: `data/seed-autisti-2026.json` (da *Autisti 2026.xlsm*) e `data/seed-infermieri-2026.json` (da *infermieri.xlsx*).
+
+## Novità della seconda versione
+- **Accesso più sicuro**: password e PIN cifrati con PBKDF2 (150.000 passaggi, sale casuale), blocco dopo 5 tentativi errati con attesa crescente, sessione che scade dopo 12 ore (30 giorni con “ricorda”), chiusura automatica per inattività, PIN obbligatorio a scelta. Con il cloud: accesso dei coordinatori con **link via email** verificato da Firebase e regole sicure (`firebase/firestore-sicure.rules`).
+- **Notifiche sul telefono**: subito quelle locali (app aperta o in background); con il cloud anche le **push ad app chiusa** tramite il motore su GitHub (`.github/workflows/motore.yml`).
+- **Calendario in abbonamento**: con il cloud il motore pubblica `cal/<reparto>/<operatore>.ics`, che il telefono aggiorna da solo (promemoria un’ora prima, reperibilità incluse). Senza cloud resta il file .ics da scaricare.
+- **Borsa scambi**: metti in borsa un turno da cedere o scambiare; i colleghi vedono se per loro va bene; accordo → approvazione del coordinatore → calendario aggiornato.
+- **Bozza automatica intelligente**: sceglie le linee migliori (coperture, assenze, disponibilità, ferie in attesa, continuità, equità di notti/weekend/reperibilità) e mostra un punteggio.
+- **Paghe e indennità**: ore notturne, festive, festive notturne, notti, buoni pasto, reperibilità, ore oltre contratto, tariffe in euro, CSV e stampa.
+- **Import Excel con i bordi** rosso/blu (esigenza di servizio / richiesta personale) e import del file infermieri.
+- **Modalità leggera** per i telefoni lenti (automatica).
+- **Test automatici** (`node --test tests/*.test.mjs`, anche su GitHub a ogni modifica) che confrontano i conteggi con i valori del file Excel.
+
+## Attivare notifiche push e calendari (quando colleghi il cloud)
+1. Genera le chiavi: `npx web-push generate-vapid-keys`.
+2. Metti la chiave **pubblica** in `data/cloud.json` come `"vapidPublicKey"` (e `"calendars": true`).
+3. Metti la chiave **privata** nei secrets del repository: *Settings › Secrets and variables › Actions › New secret* `VAPID_PRIVATE`.
+4. Il motore parte da solo ogni 15 minuti (o a mano da *Actions › Motore calendari e notifiche › Run workflow*).
+
 ## Avvio
 È un sito statico: basta pubblicarlo con GitHub Pages (Settings → Pages → branch `main`, cartella `/`).
 Al primo avvio carica i turni 2026 dal file `data/seed-autisti-2026.json` (estratto da `Autisti 2026.xlsm`).
