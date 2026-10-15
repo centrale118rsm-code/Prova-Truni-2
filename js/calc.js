@@ -117,12 +117,19 @@ export function weeks(op, year = store.config.year) {
       if (prevHas) for (const d of rangeDays(m, `${year - 1}-12-31`)) { const c = store.cell(op, d); worked += workedMin(c); credit += creditMin(c, d); }
       else credit += o.prevWeek || 0;
     }
+    // in servizio dal / fino al: le settimane fuori servizio non contano, quelle a metà si proporzionano
+    const act = activeDays(o, m, addDays(m, 6));
+    if (!act) { out.push({ monday: m, sunday: addDays(m, 6), worked, credit, total: worked + credit, delta: 0, balance: bal, days, off: true }); continue; }
+    const due = act === 7 ? weekly : Math.round(weekly * act / 7);
     const total = worked + credit;
-    bal = bal + total - weekly;
-    out.push({ monday: m, sunday: addDays(m, 6), worked, credit, total, delta: total - weekly, balance: bal, days });
+    bal = bal + total - due;
+    out.push({ monday: m, sunday: addDays(m, 6), worked, credit, total, delta: total - due, balance: bal, days, due });
   }
   return out;
 }
+// Giorni in servizio nell'intervallo (campi "from" e "to" dell'operatore)
+export function activeDays(o, a, b) { let n = 0; for (let d = a; d <= b; d = addDays(d, 1)) if (inService(o, d)) n++; return n; }
+export const inService = (o, d) => !!o && (!o.from || d >= o.from) && (!o.to || d <= o.to);
 export function balanceAt(op, date) {
   const w = weeks(op, yearOf(date)); let b = (store.op(op) || {}).initBalance || 0;
   for (const x of w) { if (x.sunday <= date) b = x.balance; }
@@ -199,10 +206,11 @@ export function yearStats(op, year = store.config.year) {
     repOf(d).forEach((x, i) => { if (x === op) st.repMin += bands[i].min; });
   }
   // gennaio dell'anno dopo: residuo "v" usato (riga 2, colonna L del foglio)
-  for (const d of monthDays(year + 1, 0)) { const c = store.cell(op, d); if (c && (c.a === 'v' || c.a === 'V') && !isRest(c)) st.vNext++; }
+  const fn = store.profile.ferieNext || { codes: ['v'], until: '01-31' };
+  for (const d of rangeDays(`${year + 1}-01-01`, `${year + 1}-${fn.until}`)) { const c = store.cell(op, d); if (c && c.a && fn.codes.includes(String(c.a).toLowerCase()) && !isRest(c)) st.vNext++; }
   st.casa = days.length - st.turno - st.diurno;
   st.ferieSpettanti = p.ferie; st.ferieRestanti = p.ferie - st.ferieUsate - st.vNext;
-  st.ferieAP = p.ferieAP || 0; st.ferieAPRestanti = (p.ferieAP || 0) - st.ferieAPUsate;
+  st.ferieAP = p.ferieAP || 0; st.ferieAPRestanti = store.profile.hasFerieAP === false && !p.ferieAP ? null : (p.ferieAP || 0) - st.ferieAPUsate;
   st.permOreSpettanti = p.permOre; st.permOreRestanti = p.permOre - st.permOre;
   st.permGgSpettanti = p.permGg; st.permGgRestanti = p.permGg - st.permGg;
   return st;
@@ -255,6 +263,7 @@ export function validate(from, to) {
     const seen = {};
     for (const o of ops) {
       const c = store.cell(o.id, d); const nm = store.opName(o.id, true);
+      if (!inService(o, d)) continue;
       if (!c || (!c.s && !c.a && !c.ph)) { issues.push({ date: d, op: o.id, level: 'info', cat: 'Caselle vuote', msg: `${lbl}: ${nm} senza turno` }); continue; }
       if (!c.s) continue;
       const s = shiftInfo(c.s);
@@ -318,3 +327,30 @@ export function describe(c) {
 }
 export const shortCell = c => !c ? '—' : [c.a ? absInfo(c.a).code : '', c.s || '', c.ph ? c.ph + 'h' : ''].filter(Boolean).join(' ') || '—';
 export { ym };
+
+// ── Domeniche (foglio "Domeniche" del file infermieri) ─────────────────
+// non lavorate = vuote (assenze o da assegnare) + smonto + riposo; lavorate = tutte le altre
+export function sundays(op, year = store.config.year) {
+  const out = { tot: 0, lavorate: 0, vuote: 0, sm: 0, rip: 0, non: 0 };
+  for (const d of rangeDays(`${year}-01-01`, `${year}-12-31`)) {
+    if (dow(d) !== 0 || !inService(store.op(op), d)) continue; out.tot++;
+    const c = store.cell(op, d); const s = c && c.s ? c.s.trim() : '';
+    if (!s) out.vuote++; else if (isSmontoCode(s)) out.sm++; else if (/^r/i.test(s)) out.rip++;
+  }
+  out.non = out.vuote + out.sm + out.rip; out.lavorate = out.tot - out.non;
+  return out;
+}
+
+// ── DIADE: quante volte due colleghi lavorano insieme nella stessa fascia ──
+// (il file infermieri conta le notti: coppie "N" nello stesso giorno)
+export function diade(kind = 'tn', year = store.config.year, ops = store.ops()) {
+  const days = rangeDays(`${year}-01-01`, `${year}-12-31`);
+  const inKind = (c, d) => { if (!c || !c.s) return false; const s = shiftInfo(c.s); if (!s) return false; return kind === 'all' ? workedMin(c) > 0 : (kind === 'tn' ? c.s.trim() === cycle()[2] : (s.cnt || []).includes(kind)); };
+  const on = {}; for (const o of ops) on[o.id] = new Set(days.filter(d => inKind(store.cell(o.id, d), d)));
+  const m = {}; let pairs = 0, done = 0;
+  for (let i = 0; i < ops.length; i++) for (let j = 0; j < i; j++) {
+    const a = ops[i].id, b = ops[j].id; let n = 0; for (const d of on[a]) if (on[b].has(d)) n++;
+    m[a + '|' + b] = n; pairs++; if (n > 0) done++;
+  }
+  return { matrix: m, pairs, done, ops };
+}

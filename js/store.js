@@ -204,7 +204,7 @@ export const store = {
         cfg.year = seed.year;
         cfg.festivi = seed.festivi;
         cfg.operators = seed.operators.map((o, i) => ({
-          id: o.id, surname: o.surname, name: o.name, label: o.label, color: o.color, active: true, order: i,
+          id: o.id, surname: o.surname, name: o.name, label: o.label, color: o.color, active: true, order: i, from: o.from, to: o.to,
           role: 'T', weeklyMin: this.profile.weeklyMin,
           params: Object.assign({}, this.profile.defaults, seed.params[o.id] || {}),
           initBalance: seed.initBalance[o.id] || 0, prevWeek: (seed.prevWeek || {})[o.id] || 0

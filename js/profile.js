@@ -83,25 +83,27 @@ export const AVAILABILITY = [
   { code: 'g',  label: 'Preferenza / impegno',  bg: '#FFCCFF', fg: '#4a004a' }
 ];
 
-// Turni degli infermieri (file infermieri.xlsx): stesse ore degli autisti, codici di una lettera,
-// stesso ciclo P → M → N → S → R; squadre da 3 per fascia.
+// Turni degli infermieri (file "Infermieri 2026.xlsm", foglio TURNI): stessi codici e ore degli autisti
+// con "M/R" al posto di "MAT/R"; stesso ciclo POM → MAT → NOTT → SM → R; squadre da 3 per fascia.
 export const INF_SHIFTS = [
-  { code: 'M',     label: 'Mattina',                    group: 'T', min: 405, from: '06:30', to: '13:15', pos: 1, cnt: ['tm'] },
-  { code: 'M/R',   label: 'Mattina + reperibilità',     group: 'T', min: 405, from: '06:30', to: '13:15', pos: 1, cnt: ['tm'], rep: true },
-  { code: 'P',     label: 'Pomeriggio',                 group: 'T', min: 445, from: '12:45', to: '20:10', pos: 0, cnt: ['tp'] },
-  { code: 'N',     label: 'Notte',                      group: 'T', min: 255, from: '19:45', to: '24:00', pos: 2, cnt: ['tn'] },
-  { code: 'S',     label: 'Smonto notte',               group: 'T', min: 440, from: '00:00', to: '07:20', pos: 3, cnt: [] },
-  { code: 'R',     label: 'Riposo',                     group: 'R', min: 0,   pos: 4, cnt: [] },
-  { code: 'M+N',   label: 'Mattina + notte',            group: 'T', min: 660, from: '06:30', to: '24:00', pos: 1, cnt: ['tm', 'tn'] },
-  { code: 'm',     label: 'Mattina diurno',             group: 'D', min: 432, from: '06:30', to: '13:42', cnt: ['dm'] },
-  { code: 'm/R',   label: 'Mattina diurno + reperibilità', group: 'D', min: 432, from: '06:30', to: '13:42', cnt: ['dm'], rep: true },
-  { code: 'p',     label: 'Pomeriggio diurno',          group: 'D', min: 432, from: '13:15', to: '20:27', cnt: ['dp'] },
-  { code: 'p/R',   label: 'Pomeriggio diurno + reperibilità', group: 'D', min: 432, from: '13:15', to: '20:27', cnt: ['dp'], rep: true },
-  { code: 'r',     label: 'Riposo diurno',              group: 'R', min: 0,   cnt: ['rip'] },
-  { code: '/R',    label: 'Solo reperibilità',          group: 'X', min: 0,   cnt: [], rep: true }
+  { code: 'MAT',    label: 'Mattina turnista',           group: 'T', min: 405, from: '06:30', to: '13:15', pos: 1, cnt: ['tm'] },
+  { code: 'M/R',    label: 'Mattina + reperibilità',     group: 'T', min: 405, from: '06:30', to: '13:15', pos: 1, cnt: ['tm'], rep: true },
+  { code: 'POM',    label: 'Pomeriggio turnista',        group: 'T', min: 445, from: '12:45', to: '20:10', pos: 0, cnt: ['tp'] },
+  { code: 'NOTT',   label: 'Notte',                      group: 'T', min: 255, from: '19:45', to: '24:00', pos: 2, cnt: ['tn'] },
+  { code: 'SM',     label: 'Smonto notte',               group: 'T', min: 440, from: '00:00', to: '07:20', pos: 3, cnt: [] },
+  { code: 'SM/R',   label: 'Smonto + reperibilità',      group: 'T', min: 440, from: '00:00', to: '07:20', pos: 3, cnt: [], rep: true },
+  { code: 'R',      label: 'Riposo turnista',            group: 'R', min: 0,   pos: 4, cnt: [] },
+  { code: 'M+N',    label: 'Mattina + notte',            group: 'T', min: 660, from: '06:30', to: '24:00', pos: 1, cnt: ['tm', 'tn'] },
+  { code: 'matt',   label: 'Mattina diurno',             group: 'D', min: 432, from: '06:30', to: '13:42', cnt: ['dm'] },
+  { code: 'matt/R', label: 'Mattina diurno + reperibilità', group: 'D', min: 432, from: '06:30', to: '13:42', cnt: ['dm'], rep: true },
+  { code: 'pome',   label: 'Pomeriggio diurno',          group: 'D', min: 432, from: '13:15', to: '20:27', cnt: ['dp'] },
+  { code: 'ripo',   label: 'Riposo diurnista',           group: 'R', min: 0,   cnt: ['rip'] },
+  { code: '/R',     label: 'Solo reperibilità',          group: 'X', min: 0,   cnt: [], rep: true }
 ];
 export const INF_ABSENCES = DEFAULT_ABSENCES.concat([
+  { code: 'g',  label: 'Gravidanza',                  bg: '#F9A8D4', fg: '#701a43', kind: 'altro' },
   { code: 'gr', label: 'Gravidanza / maternità',      bg: '#F9A8D4', fg: '#701a43', kind: 'altro' },
+  { code: 'u',  label: 'Ferie nuove (anno dopo)',     bg: '#FDE68A', fg: '#78350f', kind: 'altro' },
   { code: 'Z',  label: 'Sostituzione coordinatore',   bg: '#334155', fg: '#ffffff', kind: 'altro' }
 ]);
 
@@ -118,6 +120,8 @@ export const PROFILES = {
     coverageWant: { tm: 1, tp: 1, tn: 1 },
     // assenza: si accreditano le ore del turno teorico della linea (come nel file Excel)
     creditMode: 'line',
+    // ferie dell'anno: le "f" dell'anno + il residuo "v" usato a gennaio dell'anno dopo (riga 2 del foglio)
+    ferieNext: { codes: ['v'], until: '01-31' }, hasFerieAP: true,
     weeklyMin: 36 * 60,
     contractDayMin: 432,
     defaults: { ferie: 31, permOre: 14, permGg: 6 }
@@ -134,6 +138,8 @@ export const PROFILES = {
     coverageWant: { tm: 3, tp: 3, tn: 3 },
     // assenza giustificata: ore settimanali ÷ 6 dal lunedì al sabato, la domenica 0 (programma infermieri)
     creditMode: 'six',
+    // ferie dell'anno: le "f" fino a fine febbraio dell'anno dopo (foglio TURNI, righe 9-436); nessun residuo a parte
+    ferieNext: { codes: ['f'], until: '02-28' }, hasFerieAP: false,
     weeklyMin: 36 * 60,
     contractDayMin: 360,
     defaults: { ferie: 31, permOre: 14, permGg: 6 }
