@@ -1,9 +1,9 @@
 // Service worker: l'app si apre anche senza rete. I file dell'app vengono serviti
 // subito dalla cache e aggiornati in background (alla riapertura c'è l'ultima versione).
 // Riceve anche le notifiche push mandate dal motore su GitHub.
-const CACHE = 'turni118-v2';
+const CACHE = 'turni118-v3';
 const SHELL = [
-  './', './index.html', './manifest.json', './css/app.css', './css/myshifts.css', './css/extra.css',
+  './', './index.html', './manifest.json', './css/app.css', './css/myshifts.css', './css/extra.css', './css/planner.css', './js/display.js', './js/views/planner.js',
   './js/app.js', './js/store.js', './js/calc.js', './js/util.js', './js/ui.js', './js/profile.js', './js/excel.js', './js/push.js', './js/gen.js',
   './js/views/calendar.js', './js/views/me.js', './js/views/myshifts.js', './js/views/requests.js', './js/views/counts.js', './js/views/sheets.js', './js/views/team.js', './js/views/admin.js', './js/views/market.js', './js/views/pay.js',
   './assets/icon-118-192.png', './assets/apple-touch-icon.png', './data/seed-autisti-2026.json', './data/seed-infermieri-2026.json'

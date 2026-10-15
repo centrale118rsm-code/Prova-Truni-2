@@ -10,6 +10,7 @@ import { shiftInfo, shiftList, absList, absInfo, lineOf, codeForLine, coverage, 
 import { DEFAULT_SHIFTS, DEFAULT_ABSENCES, DEFAULT_REP_BANDS, LINE_COLORS, OPERATOR_PALETTE, PROFILES, COVERAGE } from '../profile.js';
 import { kpi } from './me.js';
 import { build, detectRole } from '../gen.js';
+import { display, DISPLAY_DEFAULTS } from '../display.js';
 import { quadro } from './counts.js';
 import { changesFor, TYPES } from './requests.js';
 import { parseWorkbook, diffImport, exportWorkbook } from '../excel.js';
@@ -442,4 +443,51 @@ async function newYear() {
     await store.saveConfig({ year: ny, operators: ops, festivi: [...new Set(c.festivi.concat(h.map(x => x.date)))].sort(), festNames: fn }, `Passaggio al ${ny}`);
     m.close(); toast(`Benvenuto ${ny}!`); setTimeout(() => location.reload(), 800);
   };
+}
+
+// ══ COSA VEDERE ═════════════════════════════════════════════════════════
+// L'amministratore sceglie cosa mostrano le pagine agli operatori (coordinatori e admin vedono tutto).
+export function visibility(el, params, ctx) {
+  if (!guard(el, ctx, 'vedere')) return;
+  const draw = () => {
+    const d = display();
+    const sw = (k, label, hint, val = d[k]) => `<label class="vis-row"><span><b>${label}</b><small>${hint}</small></span><span class="switch"><input type="checkbox" data-k="${k}" ${val ? 'checked' : ''}><i></i></span></label>`;
+    const tab = (k, label, hint) => `<label class="vis-row"><span><b>${label}</b><small>${hint}</small></span><span class="switch"><input type="checkbox" data-t="${k}" ${d.tabs[k] !== false ? 'checked' : ''}><i></i></span></label>`;
+    el.innerHTML = `<div class="page"><div class="page-h"><div><p>Scegli cosa vedono gli operatori. Coordinatori e amministratori vedono sempre tutto. Le modifiche valgono subito per tutti.</p></div><div class="acts"><button class="btn" id="vis-reset">${ic('restart_alt')}Valori consigliati</button></div></div>
+      <div class="grid g2">
+        <div class="card"><div class="card-h"><span class="ms ico">calendar_month</span><h3>Calendario</h3></div><div class="card-b col" style="gap:0">
+          <label class="vis-row"><span><b>Vista iniziale</b><small>Come si apre il calendario</small></span><select class="inp sm" id="vis-view" style="width:auto">${[['mese', 'Mese'], ['settimana', 'Settimana'], ['giorno', 'Giorno'], ['foglio', 'Foglio Excel']].map(([k, l]) => `<option value="${k}" ${d.calView === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+          ${sw('showHours', 'Orari e ore', 'Orario del turno (es. 06:30–13:15) e ore nelle caselle')}
+          ${sw('showRep', 'Reperibilità', 'Chi è reperibile, nel calendario e nei dettagli del giorno')}
+          ${sw('absReasons', 'Motivo delle assenze dei colleghi', 'Se spento si legge solo “Assente” (malattia, lutto… restano riservati)')}
+          ${sw('showNotes', 'Note sulle caselle', 'Le note scritte dal coordinatore sui turni dei colleghi')}
+          ${sw('showPhones', 'Telefoni dei colleghi', 'Pulsante per chiamare chi è in turno')}
+          ${sw('showRest', 'Chi è a riposo', 'Nel dettaglio del giorno, l’elenco di chi riposa')}
+        </div></div>
+        <div class="card"><div class="card-h"><span class="ms ico">functions</span><h3>Conteggi</h3></div><div class="card-b col" style="gap:0">
+          ${sw('othersCounts', 'Conteggi dei colleghi', 'Ore, saldi, ferie e permessi di tutti. Se spento ognuno vede solo i propri (e la pagina Equità sparisce)')}
+          <div class="sec-t">Pagine visibili agli operatori</div>
+          ${tab('foglio', 'Foglio Excel', 'Il calendario identico al file Excel')}
+          ${tab('oggi', 'In servizio', 'Chi lavora oggi e nel mese, fascia per fascia')}
+          ${tab('anno', 'Anno', 'Tutto l’anno a colpo d’occhio')}
+          ${tab('cartellino', 'Cartellino', 'Riga dei turni per persona')}
+          ${tab('ore', 'Ore e saldi', 'Saldo settimanale sulle 36 ore')}
+          ${tab('ferie', 'Ferie e permessi', 'Saldi e giorni consigliati')}
+          ${tab('reperibilita', 'Reperibilità', 'Calendario, ore e quadro mensile')}
+          ${tab('festivi', 'Festivi e domeniche', 'Festivi lavorati e domeniche')}
+          ${tab('statistiche', 'Equità', 'Notti, weekend, coppie in turno')}
+          ${tab('borsa', 'Borsa scambi', 'Turni da cedere o scambiare')}
+          ${tab('disponibilita', 'Disponibilità', 'Agenda personale e conciliazione famiglia')}
+          ${tab('squadra', 'Squadra', 'Bacheca, uscite di gruppo, ruota della sfiga')}
+        </div></div>
+      </div>
+      <div class="note mt">${ic('visibility')}<div>Per controllare il risultato esci dall’area gestione (menu in basso a sinistra) e guarda l’app come un operatore.</div></div></div>`;
+    const saveD = async (patch, msg) => { await store.saveConfig({ display: Object.assign({}, store.config.display || {}, patch) }, 'Cosa vedere: ' + msg); toast('Salvato'); };
+    el.querySelectorAll('[data-k]').forEach(i => i.onchange = () => saveD({ [i.dataset.k]: i.checked }, i.dataset.k));
+    el.querySelectorAll('[data-t]').forEach(i => i.onchange = () => saveD({ tabs: Object.assign({}, display().tabs, { [i.dataset.t]: i.checked }) }, i.dataset.t));
+    el.querySelector('#vis-view').onchange = e => saveD({ calView: e.target.value }, 'vista iniziale');
+    el.querySelector('#vis-reset').onclick = async () => { if (await confirmBox('Tornare ai valori consigliati?', 'Tutto visibile tranne l’elenco di chi è a riposo.')) { await store.saveConfig({ display: JSON.parse(JSON.stringify(DISPLAY_DEFAULTS)) }, 'Cosa vedere: valori consigliati'); toast('Ripristinato'); } };
+  };
+  draw();
+  return store.on(w => { if (w === 'config') draw(); });
 }

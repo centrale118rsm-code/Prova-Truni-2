@@ -16,9 +16,10 @@ import { ic, modal, toast, avatar, opChip, cap1 } from '../ui.js';
 import { shiftInfo, absInfo, repOf, repBands, workedMin, creditMin, weeks, hasRep, isSmontoCode, yearStats } from '../calc.js';
 import { exportICS, statusPill } from './me.js';
 import { chipFor } from '../ui.js';
+import { canSeePhone } from '../display.js';
 
 // Categorie della giornata, con una palette propria (non quella del foglio)
-const CAT = {
+export const CAT = {
   mattina:    { label: 'Mattina',     c: '#F5A524', soft: '#FEF3C7', icon: 'wb_sunny' },
   pomeriggio: { label: 'Pomeriggio',  c: '#EF6F51', soft: '#FFE4DC', icon: 'wb_twilight' },
   notte:      { label: 'Notte',       c: '#4F46E5', soft: '#E0E7FF', icon: 'dark_mode' },
@@ -224,7 +225,7 @@ function daySheet(op, d, ctx) {
     body: `<div class="col" style="gap:14px">
       <div class="ms-sheet-top" style="background:${CAT[k].soft};border-color:${CAT[k].c}"><div class="ms-sheet-dial">${dial(op, d, 150)}</div><div><div style="font-size:26px;font-weight:800;color:${CAT[k].c}">${esc(c && c.s ? c.s : CAT[k].label)}</div><div class="small" style="color:var(--ink-2)">${s && s.from ? `${s.from} – ${s.to} · ${hm(s.min)} ore` : (c && c.a ? esc(absInfo(c.a).label) : '')}${store.isFestivo(d) ? ' · festivo' : ''}</div>${c && c.n ? `<div class="small mt">${ic('sticky_note_2')} ${esc(c.n)}</div>` : ''}</div></div>
       <div><div class="sec-t" style="margin:0 0 8px">Reperibilità del giorno</div><div class="ms-bands">${bands.map((b, i) => `<div class="${r[i] === op ? 'me' : ''}"><small>${b.from}–${b.to === '24:00' ? '24' : b.to}</small><b>${esc(store.opName(r[i], true) || '—')}</b></div>`).join('')}</div></div>
-      <div><div class="sec-t" style="margin:0 0 8px">${same.length ? 'Nella tua stessa fascia' : 'Colleghi in servizio'}</div><div class="col" style="gap:6px">${(same.length ? same : mates).map(z => `<div class="row">${avatar(z.x.id)}<span class="grow"><b>${esc(z.x.name)} ${esc(cap1(z.x.surname))}</b><div class="small muted">${esc(z.c.s)}${z.x.phone ? ' · ' + esc(z.x.phone) : ''}</div></span>${z.x.phone ? `<a class="ibtn" href="tel:${esc(z.x.phone)}" title="Chiama">${ic('call')}</a>` : ''}</div>`).join('') || '<span class="muted">nessuno</span>'}</div></div>
+      <div><div class="sec-t" style="margin:0 0 8px">${same.length ? 'Nella tua stessa fascia' : 'Colleghi in servizio'}</div><div class="col" style="gap:6px">${(same.length ? same : mates).map(z => `<div class="row">${avatar(z.x.id)}<span class="grow"><b>${esc(z.x.name)} ${esc(cap1(z.x.surname))}</b><div class="small muted">${esc(z.c.s)}${z.x.phone ? ' · ' + esc(z.x.phone) : ''}</div></span>${z.x.phone && canSeePhone(z.x.id) ? `<a class="ibtn" href="tel:${esc(z.x.phone)}" title="Chiama">${ic('call')}</a>` : ''}</div>`).join('') || '<span class="muted">nessuno</span>'}</div></div>
       ${op === store.me ? `<div class="row wrap"><button class="btn" data-a="cambio">${ic('swap_horiz')}Cambio turno</button><button class="btn" data-a="perm">${ic('event_available')}Permesso</button><button class="btn" data-a="nota">${ic('edit_note')}Nota personale</button></div>` : ''}</div>`
   });
   m.body.querySelectorAll('[data-a]').forEach(b => b.onclick = async () => {
@@ -255,7 +256,7 @@ function todayAndRequests(op) {
   const mates = c && c.s && workedMin(c) ? store.ops().filter(x => x.id !== op).map(x => ({ x, c: store.cell(x.id, tm) })).filter(z => z.c && z.c.s && workedMin(z.c) > 0 && catOf(z.c) === catOf(c)) : [];
   const reqs = Object.values(store.requests).filter(r => r.op === op && r.type !== 'offerta').sort((a, b) => b.ts - a.ts).slice(0, 4);
   return `<section class="grid g2">
-    <div class="card"><div class="card-h"><span class="ms ico">groups</span><h3>Oggi nel tuo turno</h3></div><div class="card-b flush">${mates.length ? mates.map(z => `<div class="list-i">${avatar(z.x.id)}<span class="grow"><b>${esc((z.x.name ? z.x.name + ' ' : '') + cap1(z.x.surname))}</b>${z.x.phone ? `<div class="small muted">${esc(z.x.phone)}</div>` : ''}</span>${chipFor(z.c, tm)}${z.x.phone ? `<a class="ibtn" href="tel:${esc(z.x.phone)}" title="Chiama">${ic('call')}</a>` : ''}</div>`).join('') : `<div class="empty" style="padding:18px">${ic('weekend')}${c && c.s && workedMin(c) ? 'Nessun collega nella tua fascia' : 'Oggi non sei in turno'}</div>`}</div></div>
+    <div class="card"><div class="card-h"><span class="ms ico">groups</span><h3>Oggi nel tuo turno</h3></div><div class="card-b flush">${mates.length ? mates.map(z => `<div class="list-i">${avatar(z.x.id)}<span class="grow"><b>${esc((z.x.name ? z.x.name + ' ' : '') + cap1(z.x.surname))}</b>${z.x.phone && canSeePhone(z.x.id) ? `<div class="small muted">${esc(z.x.phone)}</div>` : ''}</span>${chipFor(z.c, tm)}${z.x.phone && canSeePhone(z.x.id) ? `<a class="ibtn" href="tel:${esc(z.x.phone)}" title="Chiama">${ic('call')}</a>` : ''}</div>`).join('') : `<div class="empty" style="padding:18px">${ic('weekend')}${c && c.s && workedMin(c) ? 'Nessun collega nella tua fascia' : 'Oggi non sei in turno'}</div>`}</div></div>
     <div class="card"><div class="card-h"><span class="ms ico">assignment</span><h3 class="grow">Le mie richieste</h3><a class="btn sm ghost" href="#/richieste/mie">Tutte</a></div><div class="card-b flush">${reqs.length ? reqs.map(r => `<div class="list-i"><span class="grow"><b>${esc(r.title || r.type)}</b><div class="small muted">${esc(r.from ? fmtDate(r.from) : '')}${r.to && r.to !== r.from ? ' → ' + esc(fmtDate(r.to)) : ''}</div></span>${statusPill(r.status)}</div>`).join('') : `<div class="empty" style="padding:18px">${ic('inbox')}Nessuna richiesta</div>`}</div></div>
   </section>`;
 }

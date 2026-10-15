@@ -8,6 +8,7 @@ import { ic, modal, chipFor, opChip, avatar, cap1, shiftStyle, absStyle } from '
 import { shiftInfo, absInfo, repOf, repBands, coverage, covStyle, workedMin, hasRep, validate, isSmontoCode } from '../calc.js';
 import { COVERAGE } from '../profile.js';
 import { monthGrid } from './me.js';
+import { canSeeAbsReason, canSeePhone } from '../display.js';
 
 const Y = () => store.config.year;
 
@@ -38,7 +39,7 @@ export function duty(el, params, ctx) {
     const body = el.querySelector('#body');
     if (tab === 'giorno') {
       const g = groupsOf(d); const r = repOf(d); const bands = repBands(); const cov = coverage(d);
-      const col = (title, list, color, icon, hint) => `<div class="card"><div class="card-h" style="border-top:4px solid ${color};border-radius:18px 18px 0 0">${ic(icon)}<h3 class="grow">${title}</h3><span class="pill">${list.length}</span></div><div class="card-b flush">${list.length ? list.map(({ o, c }) => { const s = c.s ? shiftInfo(c.s) : null; return `<div class="list-i">${avatar(o.id)}<span class="grow"><b>${esc(o.name)} ${esc(cap1(o.surname))}</b><div class="small muted">${s && s.from ? `${s.from} – ${s.to}` : c.a ? esc(absInfo(c.a).label) : ''}${o.phone ? ' · ' + esc(o.phone) : ''}</div></span>${chipFor(c, d)}</div>`; }).join('') : `<div class="empty" style="padding:18px">${hint || '—'}</div>`}</div></div>`;
+      const col = (title, list, color, icon, hint) => `<div class="card"><div class="card-h" style="border-top:4px solid ${color};border-radius:18px 18px 0 0">${ic(icon)}<h3 class="grow">${title}</h3><span class="pill">${list.length}</span></div><div class="card-b flush">${list.length ? list.map(({ o, c }) => { const s = c.s ? shiftInfo(c.s) : null; return `<div class="list-i">${avatar(o.id)}<span class="grow"><b>${esc(o.name)} ${esc(cap1(o.surname))}</b><div class="small muted">${s && s.from ? `${s.from} – ${s.to}` : c.a ? esc(canSeeAbsReason(o.id) ? absInfo(c.a).label : 'Assente') : ''}${o.phone && canSeePhone(o.id) ? ' · ' + esc(o.phone) : ''}</div></span>${chipFor(c, d)}</div>`; }).join('') : `<div class="empty" style="padding:18px">${hint || '—'}</div>`}</div></div>`;
       body.innerHTML = `<div class="row wrap mb"><button class="btn" data-dd="-1">${ic('chevron_left')}</button><input class="inp" type="date" id="dd" value="${d}" style="width:auto"><button class="btn" data-dd="1">${ic('chevron_right')}</button><button class="btn" data-dd="0">${ic('today')}Oggi</button><b style="margin-left:8px;font-size:16px">${esc(fmtDate(d, { wd: true, year: true }))}</b>${store.isFestivo(d) ? `<span class="pill info">${ic('celebration')}${esc(store.config.festNames[d] || 'Festivo')}</span>` : ''}
         <span class="sp"></span>${COVERAGE.map(c => { const st = covStyle(c.key, cov[c.key] || 0, cov); return `<span class="pill" title="${c.label}" style="background:${st.bg};color:${st.fg === st.bg ? '#000' : st.fg}">${c.short} ${cov[c.key] || 0}</span>`; }).join('')}</div>
         <div class="grid g3">${col('Mattina turnista (M)', g.M, '#2563eb', 'wb_sunny', '<span class="neg">Scoperto</span>')}${col('Pomeriggio turnista (P)', g.P, '#ea580c', 'wb_twilight', '<span class="neg">Scoperto</span>')}${col('Notte (N)', g.N, '#4338ca', 'dark_mode', '<span class="neg">Scoperta</span>')}

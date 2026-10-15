@@ -27,13 +27,13 @@ Si apre da qualsiasi browser, si installa sul telefono come app e funziona anche
 | Sezione | Schede |
 |---|---|
 | **I miei turni** | stato in tempo reale, i miei numeri (saldo, ferie, permessi, reperibilità, festivi), settimana in ore, colleghi di turno, le mie richieste, anno a mosaico |
-| **Calendario** | Foglio turni · Modifica (coordinatore) · In servizio · Anno · Cartellino |
+| **Calendario** | Calendario (nuovo: Mese a schede con le fasce, Settimana con le ore, Giorno sulle 24 ore, pannello conteggi con ore, saldo, ferie e permessi rimasti) · Foglio Excel · Modifica (coordinatore) · In servizio · Anno · Cartellino |
 | **Richieste** | Le mie richieste · Borsa scambi · Disponibilità · Da approvare (coordinatore) |
 | **Conteggi** | Ore e saldi · Ferie e permessi · Reperibilità · Festivi e domeniche · Equità e coppie in turno · Paghe (coordinatore) |
 | **Squadra** | Bacheca · Uscite di gruppo · Ruota della sfiga |
 | **Pannello** *(gestione)* | Riepilogo · Da controllare · Bozza automatica |
 | **Stampe e dati** *(gestione)* | Stampe e moduli · Excel e backup · Storico modifiche |
-| **Impostazioni** *(gestione)* | Operatori · Codici e regole · Generali e sicurezza · Accessi |
+| **Impostazioni** *(gestione)* | Cosa vedere (cosa mostrare agli operatori) · Operatori · Codici e regole · Generali e sicurezza · Accessi |
 
 ## Due reparti nella stessa app
 - **Autisti** (rosso) e **Infermieri** (verde acqua): si passa dall’uno all’altro con il selettore in alto nella barra laterale, con la pillola nell’intestazione, dalla schermata “Chi sei?” o con **Alt+A / Alt+I**.

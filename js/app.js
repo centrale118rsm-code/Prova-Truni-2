@@ -17,6 +17,8 @@ import * as Adm from './views/admin.js';
 import * as My from './views/myshifts.js';
 import * as Mk from './views/market.js';
 import * as Pay from './views/pay.js';
+import * as Pl from './views/planner.js';
+import { display, tabHidden } from './display.js';
 import { watchLocalNotifications, enableNotifications, notifState } from './push.js';
 
 const VERSION = '2.0.0';
@@ -31,24 +33,25 @@ const SECTIONS = [
   { g: 'Il mio lavoro' },
   { id: 'turni', icon: 'radar', label: 'I miei turni', role: 'me', view: My.myShifts },
   { id: 'calendario', icon: 'calendar_month', label: 'Calendario', role: 'all', tabs: [
-    T('foglio', 'Foglio turni', 'grid_on', Cal.calendar, 'all', { full: true }),
+    T('vista', 'Calendario', 'calendar_month', Pl.planner),
+    T('foglio', 'Foglio Excel', 'grid_on', Cal.calendar, 'all', { full: true, key: 'foglio' }),
     T('modifica', 'Modifica', 'edit_calendar', Cal.editor, 'mgr', { full: true, badge: () => store.pendingCount() || '' }),
-    T('oggi', 'In servizio', 'badge', Sh.duty),
-    T('anno', 'Anno', 'view_module', Sh.overview),
-    T('cartellino', 'Cartellino', 'view_timeline', Sh.timecard)] },
+    T('oggi', 'In servizio', 'badge', Sh.duty, 'all', { key: 'oggi' }),
+    T('anno', 'Anno', 'view_module', Sh.overview, 'all', { key: 'anno' }),
+    T('cartellino', 'Cartellino', 'view_timeline', Sh.timecard, 'all', { key: 'cartellino' })] },
   { id: 'richieste', icon: 'assignment', label: 'Richieste', role: 'me', tabs: [
     T('mie', 'Le mie richieste', 'person', Req.requests, 'me', { badge: reqBadge }),
-    T('borsa', 'Borsa scambi', 'storefront', Mk.market, 'me', { badge: () => Mk.marketBadge() }),
-    T('disponibilita', 'Disponibilità', 'event_available', Me.agenda, 'me'),
+    T('borsa', 'Borsa scambi', 'storefront', Mk.market, 'me', { badge: () => Mk.marketBadge(), key: 'borsa' }),
+    T('disponibilita', 'Disponibilità', 'event_available', Me.agenda, 'me', { key: 'disponibilita' }),
     T('gestione', 'Da approvare', 'inbox', Req.manage, 'mgr', { badge: mgrReqBadge })] },
   { id: 'conteggi', icon: 'functions', label: 'Conteggi', role: 'all', tabs: [
-    T('ore', 'Ore e saldi', 'schedule', Cnt.hours),
-    T('ferie', 'Ferie e permessi', 'beach_access', Cnt.leave),
-    T('reperibilita', 'Reperibilità', 'phone_in_talk', Cnt.oncall),
-    T('festivi', 'Festivi e domeniche', 'celebration', Cnt.holidays),
-    T('statistiche', 'Equità', 'balance', Cnt.stats),
+    T('ore', 'Ore e saldi', 'schedule', Cnt.hours, 'all', { key: 'ore' }),
+    T('ferie', 'Ferie e permessi', 'beach_access', Cnt.leave, 'all', { key: 'ferie' }),
+    T('reperibilita', 'Reperibilità', 'phone_in_talk', Cnt.oncall, 'all', { key: 'reperibilita' }),
+    T('festivi', 'Festivi e domeniche', 'celebration', Cnt.holidays, 'all', { key: 'festivi' }),
+    T('statistiche', 'Equità', 'balance', Cnt.stats, 'all', { key: 'statistiche' }),
     T('paghe', 'Paghe', 'payments', Pay.pay, 'mgr')] },
-  { id: 'squadra', icon: 'groups', label: 'Squadra', role: 'all', tabs: [
+  { id: 'squadra', icon: 'groups', label: 'Squadra', role: 'all', key: 'squadra', tabs: [
     T('bacheca', 'Bacheca', 'campaign', Team.board),
     T('uscite', 'Uscite di gruppo', 'restaurant', Team.outing),
     T('ruota', 'Ruota della sfiga', 'casino', Team.wheel)] },
@@ -62,6 +65,7 @@ const SECTIONS = [
     T('dati', 'Excel e backup', 'database', Adm.data, 'mgr'),
     T('storico', 'Storico modifiche', 'history', Adm.history, 'mgr')] },
   { id: 'impostazioni', icon: 'settings', label: 'Impostazioni', role: 'mgr', tabs: [
+    T('vedere', 'Cosa vedere', 'visibility', Adm.visibility, 'mgr'),
     T('operatori', 'Operatori', 'group', Adm.operators, 'mgr'),
     T('codici', 'Codici e regole', 'palette', Adm.codes, 'mgr'),
     T('generali', 'Generali e sicurezza', 'tune', Adm.settings, 'admin'),
@@ -71,7 +75,7 @@ const SECTIONS = [
 ];
 // Vecchi indirizzi (link interni, notifiche) → sezione/scheda
 const ALIAS = {
-  calendario: 'calendario/foglio', modifica: 'calendario/modifica', servizio: 'calendario/oggi', insieme: 'calendario/anno', cartellino: 'calendario/cartellino',
+  calendario: 'calendario/vista', foglio: 'calendario/foglio', vedere: 'impostazioni/vedere', modifica: 'calendario/modifica', servizio: 'calendario/oggi', insieme: 'calendario/anno', cartellino: 'calendario/cartellino',
   me: 'turni', richieste: 'richieste/mie', borsa: 'richieste/borsa', agenda: 'richieste/disponibilita', 'gestione-richieste': 'richieste/gestione',
   ore: 'conteggi/ore', ferie: 'conteggi/ferie', reperibilita: 'conteggi/reperibilita', festivi: 'conteggi/festivi', statistiche: 'conteggi/statistiche', paghe: 'conteggi/paghe',
   bacheca: 'squadra/bacheca', uscite: 'squadra/uscite', ruota: 'squadra/ruota',
@@ -82,6 +86,7 @@ const ALIAS = {
 const BNAV = [['turni', 'radar', 'I miei turni'], ['calendario', 'calendar_month', 'Calendario'], ['richieste', 'assignment', 'Richieste'], ['conteggi', 'functions', 'Conteggi'], ['__menu', 'menu', 'Altro']];
 
 function canSee(item) {
+  if (item.key && tabHidden(item.key)) return false;
   if (item.role === 'all' || !item.role) return true;
   if (item.role === 'me') return !!store.me || store.isManager();
   if (item.role === 'mgr') return store.isManager();
@@ -91,7 +96,7 @@ function canSee(item) {
 const sectionOf = id => SECTIONS.find(n => n.id === id);
 const visibleTabs = sec => (sec.tabs || []).filter(canSee);
 const badgeOf = sec => sec.tabs ? visibleTabs(sec).reduce((a, t) => a + (+(t.badge ? t.badge() : 0) || 0), 0) || '' : (sec.badge ? sec.badge() : '');
-const homeFor = () => store.isManager() ? 'pannello/riepilogo' : (store.me ? 'turni' : 'calendario/foglio');
+const homeFor = () => store.isManager() ? 'pannello/riepilogo' : (store.me ? 'turni' : 'calendario/vista');
 
 // ── Navigazione ──
 let current = { id: null, tab: null, cleanup: null };
@@ -119,6 +124,7 @@ function route() {
   if (sec.tabs) {
     const vis = visibleTabs(sec);
     t = vis.find(x => x.id === tab);
+    if (!t && !tab && id === 'calendario' && display().calView === 'foglio') t = vis.find(x => x.id === 'foglio');
     if (!t) {
       const wanted = sec.tabs.find(x => x.id === tab);
       if (wanted && !canSee(wanted)) askLogin(wanted.role === 'admin' ? 'admin' : 'coord', () => go(`${id}/${tab}`, params));
