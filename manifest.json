@@ -1,0 +1,16 @@
+{
+  "name": "Turni 118 — Gestionale turni",
+  "short_name": "Turni 118",
+  "description": "Calendario turni, reperibilità, conteggi orari, ferie e richieste",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0c1424",
+  "theme_color": "#0c1424",
+  "lang": "it",
+  "icons": [
+    { "src": "assets/icon-118-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-118.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
