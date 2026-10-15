@@ -23,11 +23,23 @@ Si apre da qualsiasi browser, si installa sul telefono come app e funziona anche
 **Gestione (coordinatore / amministratore)**
 - Pannello di controllo, **Modifica turni** (tavolozza, pennello, selezione multipla, copia/incolla, scrittura veloce dei codici, annulla/ripeti, bozza e pubblicazione con notifica agli interessati), **bozza automatica** del mese a 5 linee, **controlli** (coperture, doppioni, smonto dopo la notte, riposo minimo, giorni consecutivi…), richieste da gestire, operatori (colori, spettanze, saldo iniziale, PIN), codici/orari/regole, **stampe e moduli**, **import dal file Excel** e export .xlsx, backup e copie di sicurezza, storico modifiche con ripristino, accessi, impostazioni, passaggio al nuovo anno.
 
+## Menu (semplice: 8 sezioni con le schede in alto)
+| Sezione | Schede |
+|---|---|
+| **I miei turni** | stato in tempo reale, i miei numeri (saldo, ferie, permessi, reperibilità, festivi), settimana in ore, colleghi di turno, le mie richieste, anno a mosaico |
+| **Calendario** | Foglio turni · Modifica (coordinatore) · In servizio · Anno · Cartellino |
+| **Richieste** | Le mie richieste · Borsa scambi · Disponibilità · Da approvare (coordinatore) |
+| **Conteggi** | Ore e saldi · Ferie e permessi · Reperibilità · Festivi e domeniche · Equità e coppie in turno · Paghe (coordinatore) |
+| **Squadra** | Bacheca · Uscite di gruppo · Ruota della sfiga |
+| **Pannello** *(gestione)* | Riepilogo · Da controllare · Bozza automatica |
+| **Stampe e dati** *(gestione)* | Stampe e moduli · Excel e backup · Storico modifiche |
+| **Impostazioni** *(gestione)* | Operatori · Codici e regole · Generali e sicurezza · Accessi |
+
 ## Due reparti nella stessa app
 - **Autisti** (rosso) e **Infermieri** (verde acqua): si passa dall’uno all’altro con il selettore in alto nella barra laterale, con la pillola nell’intestazione, dalla schermata “Chi sei?” o con **Alt+A / Alt+I**.
 - Link diretti: `…/?p=autisti` e `…/?p=infermieri` (comodi da mandare su WhatsApp a ciascun gruppo).
 - Ogni reparto ha i suoi codici (autisti: MAT, POM, NOTT, SM…; infermieri: M, P, N, S…), le sue coperture (1 o 3 per fascia), il suo modo di accreditare le assenze e il suo archivio separato.
-- Turni 2026 precaricati: `data/seed-autisti-2026.json` (da *Autisti 2026.xlsm*) e `data/seed-infermieri-2026.json` (da *infermieri.xlsx*).
+- Turni 2026 precaricati: `data/seed-autisti-2026.json` (da *Autisti 2026.xlsm*) e `data/seed-infermieri-2026.json` (dal file principale *Infermieri 2026.xlsm*: 24 infermieri, crediti orari, saldi, bordi, reperibilità, ferie personali, date di inizio servizio).
 
 ## Novità della seconda versione
 - **Accesso più sicuro**: password e PIN cifrati con PBKDF2 (150.000 passaggi, sale casuale), blocco dopo 5 tentativi errati con attesa crescente, sessione che scade dopo 12 ore (30 giorni con “ricorda”), chiusura automatica per inattività, PIN obbligatorio a scelta. Con il cloud: accesso dei coordinatori con **link via email** verificato da Firebase e regole sicure (`firebase/firestore-sicure.rules`).

@@ -13,8 +13,9 @@
 import { store } from '../store.js';
 import { esc, MONTHS, WD, WD_LONG, today, addDays, fmtDate, hm, dow, mondayOf, pad, yearOf, monthIdx, rangeDays, daysBetween } from '../util.js';
 import { ic, modal, toast, avatar, opChip, cap1 } from '../ui.js';
-import { shiftInfo, absInfo, repOf, repBands, workedMin, creditMin, weeks, hasRep, isSmontoCode } from '../calc.js';
-import { exportICS } from './me.js';
+import { shiftInfo, absInfo, repOf, repBands, workedMin, creditMin, weeks, hasRep, isSmontoCode, yearStats } from '../calc.js';
+import { exportICS, statusPill } from './me.js';
+import { chipFor } from '../ui.js';
 
 // Categorie della giornata, con una palette propria (non quella del foglio)
 const CAT = {
@@ -121,6 +122,7 @@ export function myShifts(el, params, ctx) {
 
       <section class="ms-radar">${radar.map(r => `<div class="ms-r" style="--c:${r.c}"><span class="ms ms-r-i">${r.icon}</span><div><div class="ms-r-v">${r.v}</div><div class="ms-r-l">${esc(r.l)}</div></div></div>`).join('')}</section>
 
+      ${numbers(op)}
       <section class="card ms-week">
         <div class="ms-week-h"><div><h3>La settimana in ore</h3><div class="small muted">${esc(fmtDate(wk))} → ${esc(fmtDate(addDays(wk, 6)))}${curW && wk === curW.monday ? ` · ${hm(curW.total)} su ${hm(o.weeklyMin || store.profile.weeklyMin)}` : ''}</div></div>
           <div class="row wrap" style="gap:6px"><select class="inp sm" id="ms-mate" style="width:auto"><option value="">Confronta con…</option>${store.ops().filter(x => x.id !== op).map(x => `<option value="${x.id}" ${mate === x.id ? 'selected' : ''}>${esc(x.name)} ${esc(cap1(x.surname))}</option>`).join('')}</select>
@@ -130,6 +132,7 @@ export function myShifts(el, params, ctx) {
         <div class="ms-leg">${['mattina', 'pomeriggio', 'notte', 'smonto'].map(k => `<span><i style="background:${CAT[k].c}"></i>${CAT[k].label}</span>`).join('')}<span><i class="ms-rep-i"></i>Reperibilità</span>${mate ? `<span><i style="background:transparent;border:2px dashed var(--muted)"></i>${esc(cap1(store.op(mate).surname))}</span>` : ''}</div>
       </section>
 
+      ${todayAndRequests(op)}
       <section class="card ms-year">
         <div class="ms-week-h"><div><h3>Il tuo ${Y} a mosaico</h3><div class="small muted">Ogni tessera è un giorno: tocca per i dettagli</div></div></div>
         <div class="ms-mosaic-wrap">${mosaic(op, Y)}</div>
@@ -208,7 +211,6 @@ function insights(op) {
   out.push({ icon: 'phone_in_talk', l: 'Reperibilità nei prossimi 30 giorni', v: reps, c: '#DB2777' });
   // saldo ore
   const w = weeks(op, store.config.year); const last = [...w].reverse().find(x => x.sunday < tm);
-  if (last) out.push({ icon: 'account_balance', l: 'Saldo ore', v: hm(last.balance, { plus: true }), c: last.balance >= 0 ? '#10B981' : '#F43F5E' });
   return out;
 }
 
@@ -230,4 +232,30 @@ function daySheet(op, d, ctx) {
     if (b.dataset.a === 'nota') { const { promptBox } = await import('../ui.js'); const cur = store.agendaOf(op, d) || {}; const v = await promptBox('Nota personale · ' + fmtDate(d), { value: cur.n || '', textarea: true }); if (v != null) { await store.setAgenda(op, d, Object.assign({}, cur, { n: v.trim() || undefined })); toast('Nota salvata'); } return; }
     ctx.go('richieste', { new: 1, d });
   });
+}
+
+// ── I miei numeri: saldo, settimana, ferie, permessi, reperibilità, festivi ──
+function numbers(op) {
+  const o = store.op(op); const tm = today(); const st = yearStats(op, store.config.year);
+  const w = weeks(op, store.config.year); const cur = w.find(x => x.monday <= tm && x.sunday >= tm); const last = [...w].reverse().find(x => x.sunday < tm);
+  const bal = last ? last.balance : (o.initBalance || 0);
+  const tiles = [
+    ['Saldo ore', hm(bal, { plus: true }), last ? `al ${fmtDate(last.sunday)}` : 'iniziale', bal >= 0 ? '#10B981' : '#F43F5E', 'account_balance', 'conteggi/ore'],
+    ['Questa settimana', cur ? hm(cur.total) : '—', `su ${hm(o.weeklyMin || store.profile.weeklyMin)}`, '#3B82F6', 'date_range', 'conteggi/ore'],
+    ['Ferie rimaste', st.ferieRestanti, `su ${st.ferieSpettanti}${st.ferieAPRestanti != null && st.ferieAP ? ` · residuo ${st.ferieAPRestanti}` : ''}`, '#EAB308', 'beach_access', 'conteggi/ferie'],
+    ['Permessi', `${st.permGgRestanti} gg · ${st.permOreRestanti} h`, `pn usati ${st.pn}`, '#22C55E', 'event_available', 'conteggi/ferie'],
+    ['Reperibilità', st.rep, `${hm(st.repMin)} ore nell’anno`, '#DB2777', 'phone_in_talk', 'conteggi/reperibilita'],
+    ['Festivi lavorati', st.festLav, `non goduti ${st.fng}`, '#06B6D4', 'celebration', 'conteggi/festivi']
+  ];
+  return `<section class="ms-nums">${tiles.map(([l, v, sub, c, icon, link]) => `<a class="ms-num" href="#/${link}" style="--c:${c}"><span class="ms">${icon}</span><span class="ms-num-l">${esc(l)}</span><b>${esc(String(v))}</b><small>${esc(sub)}</small></a>`).join('')}</section>`;
+}
+// ── Oggi in servizio con me + le mie richieste ──
+function todayAndRequests(op) {
+  const tm = today(); const c = store.cell(op, tm);
+  const mates = c && c.s && workedMin(c) ? store.ops().filter(x => x.id !== op).map(x => ({ x, c: store.cell(x.id, tm) })).filter(z => z.c && z.c.s && workedMin(z.c) > 0 && catOf(z.c) === catOf(c)) : [];
+  const reqs = Object.values(store.requests).filter(r => r.op === op && r.type !== 'offerta').sort((a, b) => b.ts - a.ts).slice(0, 4);
+  return `<section class="grid g2">
+    <div class="card"><div class="card-h"><span class="ms ico">groups</span><h3>Oggi nel tuo turno</h3></div><div class="card-b flush">${mates.length ? mates.map(z => `<div class="list-i">${avatar(z.x.id)}<span class="grow"><b>${esc((z.x.name ? z.x.name + ' ' : '') + cap1(z.x.surname))}</b>${z.x.phone ? `<div class="small muted">${esc(z.x.phone)}</div>` : ''}</span>${chipFor(z.c, tm)}${z.x.phone ? `<a class="ibtn" href="tel:${esc(z.x.phone)}" title="Chiama">${ic('call')}</a>` : ''}</div>`).join('') : `<div class="empty" style="padding:18px">${ic('weekend')}${c && c.s && workedMin(c) ? 'Nessun collega nella tua fascia' : 'Oggi non sei in turno'}</div>`}</div></div>
+    <div class="card"><div class="card-h"><span class="ms ico">assignment</span><h3 class="grow">Le mie richieste</h3><a class="btn sm ghost" href="#/richieste/mie">Tutte</a></div><div class="card-b flush">${reqs.length ? reqs.map(r => `<div class="list-i"><span class="grow"><b>${esc(r.title || r.type)}</b><div class="small muted">${esc(r.from ? fmtDate(r.from) : '')}${r.to && r.to !== r.from ? ' → ' + esc(fmtDate(r.to)) : ''}</div></span>${statusPill(r.status)}</div>`).join('') : `<div class="empty" style="padding:18px">${ic('inbox')}Nessuna richiesta</div>`}</div></div>
+  </section>`;
 }

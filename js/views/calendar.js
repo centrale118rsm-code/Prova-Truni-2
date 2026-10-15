@@ -48,7 +48,7 @@ function mount(el, params, ctx, edit) {
       <button class="btn sm" id="btn-check">${ic('fact_check')}<span class="desk-only">Controlla</span></button>
       <button class="btn sm" id="btn-discard">${ic('delete_sweep')}<span class="desk-only">Scarta</span></button>
       <button class="btn sm pri" id="btn-pub">${ic('publish')}Pubblica <span class="badge" id="pub-n"></span></button>`
-      : (store.isManager() ? `<button class="btn sm pri" id="btn-edit">${ic('edit')}Modifica</button>` : '')}
+      : ''}
       <button class="btn sm" id="btn-print" title="Stampa il mese">${ic('print')}</button>
     </div>
     <div class="xl-legend hidden" id="legend" style="padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--line)"></div>

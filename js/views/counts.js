@@ -9,7 +9,7 @@
 import { store } from '../store.js';
 import { esc, MONTHS, WD, today, addDays, fmtDate, fmtShort, hm, monthDays, dow, download, yearOf, monthIdx, rangeDays, holidaysSM, contrast } from '../util.js';
 import { ic, modal, toast, confirmBox, promptBox, chipFor, opChip, avatar, cap1, shiftStyle, absStyle, barChart, donut } from '../ui.js';
-import { shiftInfo, absInfo, absList, weeks, monthHours, yearStats, repOf, repBands, repDayHours, repIsOverride, workedMin, creditMin, equity, hasRep, isRest } from '../calc.js';
+import { shiftInfo, absInfo, absList, weeks, monthHours, yearStats, repOf, repBands, repDayHours, repIsOverride, workedMin, creditMin, equity, hasRep, isRest, sundays, diade, cycle } from '../calc.js';
 import { kpi } from './me.js';
 
 const Y = () => store.config.year;
@@ -190,6 +190,7 @@ export function holidays(el, params, ctx) {
     const names = Object.fromEntries(holidaysSM(Y()).map(h => [h.date, h.name]));
     el.innerHTML = `<div class="page wide"><div class="page-h"><div><h2>Festivi ${Y()}</h2><p>Come la tabella FESTIVI del foglio: festivi lavorati e relative ore, festività non godute (ng), non lavorate (nl), festivi di riposo (R).</p></div>${store.isManager() ? `<div class="acts"><button class="btn" id="f-sm">${ic('flag')}Calendario di San Marino</button><button class="btn pri" id="f-add">${ic('add')}Aggiungi festivo</button></div>` : ''}</div>
       <div class="card mb"><table class="tbl"><thead><tr><th>Operatore</th><th class="r">Festivi lavorati</th><th class="r">Ore festive lavorate</th><th class="r">F.N.G.</th><th class="r">Festivi non lavorati</th><th class="r">Festivi “R”</th></tr></thead><tbody>${rows.map(({ o, s }) => `<tr><td>${opChip(o.id, { full: true })}</td><td class="r num b">${s.festLav}</td><td class="r num">${hm(s.oreFestLav)}</td><td class="r num">${s.fng}</td><td class="r num">${s.fnl}</td><td class="r num">${s.festR}</td></tr>`).join('')}</tbody></table></div>
+      ${sundaysCard()}
       <div class="card"><div class="card-h"><span class="ms ico">celebration</span><h3>Chi lavora nei festivi</h3></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Festivo</th>${store.ops().map(o => `<th class="c" style="background:${o.color};color:#fff">${esc(cap1(o.surname).slice(0, 9))}</th>`).join('')}${store.isManager() ? '<th></th>' : ''}</tr></thead><tbody>
       ${fest.map(d => `<tr><td class="nowrap"><b>${esc(fmtDate(d, { wd: true }))}</b><div class="small muted">${esc(store.config.festNames[d] || names[d] || '')}</div></td>${store.ops().map(o => `<td class="c">${chipFor(store.cell(o.id, d), d)}</td>`).join('')}${store.isManager() ? `<td><button class="ibtn" data-del="${d}" title="Togli">${ic('delete')}</button></td>` : ''}</tr>`).join('')}</tbody></table></div></div></div>`;
     if (store.isManager()) {
@@ -214,7 +215,9 @@ export function stats(el, params, ctx) {
       ${rows.map(r => `<tr><td>${opChip(r.op.id, { full: true })}</td>${keys.map(([k]) => { const v = r.st[k], a = avgOf(k); const dev = a ? (v - a) / a : 0; const heavy = ['notti', 'weekend', 'domeniche', 'festLav', 'rep'].includes(k); return `<td class="r num" style="${heavy && Math.abs(dev) > .15 ? `background:${dev > 0 ? 'var(--err-soft)' : 'var(--ok-soft)'};font-weight:700` : ''}">${v}</td>`; }).join('')}<td class="r num">${Math.round(r.st.repMin / 60)}</td></tr>`).join('')}
       <tr style="background:var(--surface-2)"><td><b>Media</b></td>${keys.map(([k]) => `<td class="r num b">${avgOf(k).toFixed(1)}</td>`).join('')}<td class="r num b">${Math.round(rows.reduce((a, r) => a + r.st.repMin, 0) / 60 / Math.max(1, rows.length))}</td></tr></tbody></table></div></div>
       <div class="grid g2"><div class="card"><div class="card-h"><span class="ms ico">dark_mode</span><h3>Notti, weekend e festivi</h3></div><div class="card-b">${barChart({ labels: rows.map(r => cap1(r.op.surname).slice(0, 8)), series: [{ name: 'Notti', values: rows.map(r => r.st.notti) }, { name: 'Weekend', values: rows.map(r => r.st.weekend) }, { name: 'Festivi', values: rows.map(r => r.st.festLav) }], colors: ['#4f46e5', '#f59e0b', '#06b6d4'] })}</div></div>
-      <div class="card"><div class="card-h"><span class="ms ico">donut_large</span><h3>Distribuzione dei codici</h3></div><div class="card-b">${codeDistribution()}</div></div></div></div>`;
+      <div class="card"><div class="card-h"><span class="ms ico">donut_large</span><h3>Distribuzione dei codici</h3></div><div class="card-b">${codeDistribution()}</div></div></div>
+      <div class="card mt" id="diade-card"></div></div>`;
+    drawDiade(el.querySelector('#diade-card'));
   };
   draw();
   return store.on(w => { if (w === 'cells') draw(); });
@@ -224,4 +227,23 @@ function codeDistribution() {
   for (const o of store.ops()) for (const d of rangeDays(`${y}-01-01`, `${y}-12-31`)) { const c = store.cell(o.id, d); if (c && c.s) cnt[c.s.trim()] = (cnt[c.s.trim()] || 0) + 1; }
   const parts = Object.entries(cnt).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([k, v]) => { const st = shiftStyle({ s: k }, `${y}-01-01`); return { l: k, v, c: st.bg === '#fff' ? (st.fg === '#000' ? '#334155' : st.fg) : st.bg }; });
   return `<div class="row wrap" style="gap:24px">${donut(parts, 160)}<div class="col" style="gap:6px">${parts.map(p => `<div class="row small"><i style="width:12px;height:12px;border-radius:3px;background:${p.c};display:inline-block"></i><b style="min-width:60px">${esc(p.l)}</b><span class="muted">${p.v}</span></div>`).join('')}</div></div>`;
+}
+
+// ── Domeniche (foglio "Domeniche"): lavorate e non lavorate, divise per motivo ──
+function sundaysCard() {
+  const rows = store.ops().map(o => ({ o, d: sundays(o.id) })).sort((a, b) => a.o.surname < b.o.surname ? -1 : 1);
+  const tot = rows.length ? rows[0].d.tot : 52;
+  return `<div class="card mb"><div class="card-h"><span class="ms ico">weekend</span><h3 class="grow">Domeniche ${Y()}</h3><span class="small muted">${tot} domeniche nell’anno (dall’inizio servizio per chi è entrato dopo)</span></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Operatore</th><th class="r" style="color:#0284c7">Lavorate</th><th class="r">Vuote <span class="muted">(assenze o da assegnare)</span></th><th class="r">Smonto</th><th class="r">Riposo</th><th class="r">Non lavorate</th></tr></thead><tbody>
+    ${rows.map(({ o, d }) => `<tr style="${o.active === false ? 'opacity:.5' : ''}"><td>${opChip(o.id, { full: true })}${o.from ? ` <span class="pill">dal ${esc(fmtDate(o.from))}</span>` : ''}</td><td class="r num b" style="color:#0284c7">${d.lavorate}</td><td class="r num">${d.vuote}</td><td class="r num">${d.sm}</td><td class="r num">${d.rip}</td><td class="r num b" style="color:var(--err)">${d.non}</td></tr>`).join('')}</tbody></table></div></div>`;
+}
+// ── Coppie in turno (foglio DIADE): quante volte due colleghi lavorano insieme ──
+function drawDiade(box, kind = 'tn') {
+  if (!box) return;
+  const ops = store.ops(); const r = diade(kind, Y(), ops); const max = Math.max(1, ...Object.values(r.matrix));
+  const kinds = [['tn', 'Notti'], ['tm', 'Mattine'], ['tp', 'Pomeriggi'], ['all', 'Tutti i turni']];
+  const cell = (a, b) => { const v = r.matrix[a + '|' + b]; const t = v / max; return `<td class="c num" title="${esc(store.opName(a))} e ${esc(store.opName(b))}: ${v}" style="background:${v ? `rgba(14,116,144,${0.12 + t * 0.75})` : 'var(--err-soft)'};color:${t > .55 ? '#fff' : 'var(--ink)'};font-weight:${v ? 700 : 400}">${v}</td>`; };
+  box.innerHTML = `<div class="card-h"><span class="ms ico">join_inner</span><h3 class="grow">Coppie in turno</h3><div class="seg">${kinds.map(([k, l]) => `<button data-k="${k}" class="${k === kind ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+    <div class="card-b"><div class="row wrap mb"><span class="pill acc">${r.done} coppie su ${r.pairs} hanno lavorato insieme</span><span class="pill err">${r.pairs - r.done} mai insieme</span><span class="small muted">Come il foglio DIADE: per ogni coppia il numero di ${kind === 'tn' ? 'notti' : kind === 'all' ? 'giorni di lavoro' : 'turni nella stessa fascia'} in comune. Utile per variare le squadre.</span></div>
+    <div style="overflow:auto"><table class="tbl" style="font-size:11.5px;width:auto"><tbody>${ops.map((a, i) => `<tr><th style="position:sticky;left:0;background:var(--surface);text-align:right;text-transform:none;letter-spacing:0;font-size:12px;color:var(--ink)"><span class="op-chip"><i style="background:${a.color};height:14px"></i>${esc(cap1(a.surname))}</span></th>${ops.slice(0, i).map(b => cell(a.id, b.id)).join('')}<td class="c" style="font-size:10px;color:var(--muted)">${i + 1}</td></tr>`).join('')}</tbody></table></div></div>`;
+  box.querySelectorAll('[data-k]').forEach(b => b.onclick = () => drawDiade(box, b.dataset.k));
 }

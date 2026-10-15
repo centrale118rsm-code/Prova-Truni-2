@@ -19,48 +19,67 @@ import * as Mk from './views/market.js';
 import * as Pay from './views/pay.js';
 import { watchLocalNotifications, enableNotifications, notifState } from './push.js';
 
-const VERSION = '1.0.0';
+const VERSION = '2.0.0';
 
-// Voci di navigazione. role: all | me (serve aver scelto chi sei) | mgr (coordinatore o admin) | admin
-const NAV = [
-  { g: 'Turni', icon: 'calendar_month' },
-  { id: 'calendario', icon: 'calendar_month', label: 'Calendario turni', view: Cal.calendar, role: 'all' },
-  { id: 'servizio', icon: 'badge', label: 'In servizio oggi', view: Sh.duty, role: 'all' },
-  { id: 'insieme', icon: 'view_module', label: "Vista d'insieme", view: Sh.overview, role: 'all' },
-  { id: 'cartellino', icon: 'view_timeline', label: 'Cartellino annuale', view: Sh.timecard, role: 'all' },
-  { g: 'La mia area', icon: 'person' },
-  { id: 'turni', icon: 'radar', label: 'I miei turni', view: My.myShifts, role: 'me' },
-  { id: 'me', icon: 'space_dashboard', label: 'La mia pagina', view: Me.home, role: 'me' },
-  { id: 'richieste', icon: 'assignment', label: 'Richieste', view: Req.requests, role: 'me', badge: () => reqBadge() },
-  { id: 'borsa', icon: 'storefront', label: 'Borsa scambi', view: Mk.market, role: 'me', badge: () => Mk.marketBadge() },
-  { id: 'agenda', icon: 'event_note', label: 'Disponibilità e agenda', view: Me.agenda, role: 'me' },
-  { id: 'notifiche', icon: 'notifications', label: 'Notifiche', view: Me.notifications, role: 'me', badge: () => unreadCount() },
-  { g: 'Conteggi', icon: 'functions' },
-  { id: 'ore', icon: 'schedule', label: 'Ore e saldi', view: Cnt.hours, role: 'all' },
-  { id: 'ferie', icon: 'beach_access', label: 'Ferie e permessi', view: Cnt.leave, role: 'all' },
-  { id: 'reperibilita', icon: 'phone_in_talk', label: 'Reperibilità', view: Cnt.oncall, role: 'all' },
-  { id: 'festivi', icon: 'celebration', label: 'Festivi', view: Cnt.holidays, role: 'all' },
-  { id: 'statistiche', icon: 'monitoring', label: 'Statistiche ed equità', view: Cnt.stats, role: 'all' },
-  { g: 'Squadra', icon: 'groups' },
-  { id: 'bacheca', icon: 'campaign', label: 'Bacheca', view: Team.board, role: 'all' },
-  { id: 'uscite', icon: 'restaurant', label: 'Uscite di gruppo', view: Team.outing, role: 'all' },
-  { id: 'ruota', icon: 'casino', label: 'Ruota della sfiga', view: Team.wheel, role: 'all' },
-  { g: 'Gestione', icon: 'admin_panel_settings', role: 'mgr' },
-  { id: 'dashboard', icon: 'dashboard', label: 'Pannello di controllo', view: Adm.dashboard, role: 'mgr' },
-  { id: 'modifica', icon: 'edit_calendar', label: 'Modifica turni', view: Cal.editor, role: 'mgr', badge: () => store.pendingCount() || '' },
-  { id: 'bozza', icon: 'auto_awesome', label: 'Bozza automatica', view: Adm.generator, role: 'mgr' },
-  { id: 'controlli', icon: 'fact_check', label: 'Da controllare', view: Adm.checks, role: 'mgr' },
-  { id: 'gestione-richieste', icon: 'inbox', label: 'Richieste da gestire', view: Req.manage, role: 'mgr', badge: () => mgrReqBadge() },
-  { id: 'operatori', icon: 'group', label: 'Operatori', view: Adm.operators, role: 'mgr' },
-  { id: 'codici', icon: 'palette', label: 'Codici, orari e regole', view: Adm.codes, role: 'mgr' },
-  { id: 'paghe', icon: 'payments', label: 'Paghe e indennità', view: Pay.pay, role: 'mgr' },
-  { id: 'stampe', icon: 'print', label: 'Stampe e moduli', view: Adm.prints, role: 'mgr' },
-  { id: 'dati', icon: 'database', label: 'Importa, esporta, backup', view: Adm.data, role: 'mgr' },
-  { id: 'storico', icon: 'history', label: 'Storico modifiche', view: Adm.history, role: 'mgr' },
-  { id: 'accessi', icon: 'devices', label: 'Accessi', view: Adm.sessions, role: 'admin' },
-  { id: 'impostazioni', icon: 'settings', label: 'Impostazioni', view: Adm.settings, role: 'admin' }
+// Sezioni del menu. Ogni sezione ha le sue schede (in alto nella pagina).
+// role: all | me (serve aver scelto chi sei) | mgr (coordinatore o admin) | admin
+const T = (id, label, icon, view, role = 'all', extra = {}) => Object.assign({ id, label, icon, view, role }, extra);
+const unreadCount = () => store.myNotif().filter(([, n]) => !n.read).length || '';
+const reqBadge = () => Object.values(store.requests).filter(r => r.status === 'collega' && r.peer === store.me).length || '';
+const mgrReqBadge = () => Object.values(store.requests).filter(r => r.status === 'attesa').length || '';
+const SECTIONS = [
+  { g: 'Il mio lavoro' },
+  { id: 'turni', icon: 'radar', label: 'I miei turni', role: 'me', view: My.myShifts },
+  { id: 'calendario', icon: 'calendar_month', label: 'Calendario', role: 'all', tabs: [
+    T('foglio', 'Foglio turni', 'grid_on', Cal.calendar, 'all', { full: true }),
+    T('modifica', 'Modifica', 'edit_calendar', Cal.editor, 'mgr', { full: true, badge: () => store.pendingCount() || '' }),
+    T('oggi', 'In servizio', 'badge', Sh.duty),
+    T('anno', 'Anno', 'view_module', Sh.overview),
+    T('cartellino', 'Cartellino', 'view_timeline', Sh.timecard)] },
+  { id: 'richieste', icon: 'assignment', label: 'Richieste', role: 'me', tabs: [
+    T('mie', 'Le mie richieste', 'person', Req.requests, 'me', { badge: reqBadge }),
+    T('borsa', 'Borsa scambi', 'storefront', Mk.market, 'me', { badge: () => Mk.marketBadge() }),
+    T('disponibilita', 'Disponibilità', 'event_available', Me.agenda, 'me'),
+    T('gestione', 'Da approvare', 'inbox', Req.manage, 'mgr', { badge: mgrReqBadge })] },
+  { id: 'conteggi', icon: 'functions', label: 'Conteggi', role: 'all', tabs: [
+    T('ore', 'Ore e saldi', 'schedule', Cnt.hours),
+    T('ferie', 'Ferie e permessi', 'beach_access', Cnt.leave),
+    T('reperibilita', 'Reperibilità', 'phone_in_talk', Cnt.oncall),
+    T('festivi', 'Festivi e domeniche', 'celebration', Cnt.holidays),
+    T('statistiche', 'Equità', 'balance', Cnt.stats),
+    T('paghe', 'Paghe', 'payments', Pay.pay, 'mgr')] },
+  { id: 'squadra', icon: 'groups', label: 'Squadra', role: 'all', tabs: [
+    T('bacheca', 'Bacheca', 'campaign', Team.board),
+    T('uscite', 'Uscite di gruppo', 'restaurant', Team.outing),
+    T('ruota', 'Ruota della sfiga', 'casino', Team.wheel)] },
+  { g: 'Gestione', role: 'mgr' },
+  { id: 'pannello', icon: 'dashboard', label: 'Pannello', role: 'mgr', tabs: [
+    T('riepilogo', 'Riepilogo', 'dashboard', Adm.dashboard, 'mgr'),
+    T('controlli', 'Da controllare', 'fact_check', Adm.checks, 'mgr'),
+    T('bozza', 'Bozza automatica', 'auto_awesome', Adm.generator, 'mgr')] },
+  { id: 'documenti', icon: 'folder_open', label: 'Stampe e dati', role: 'mgr', tabs: [
+    T('stampe', 'Stampe e moduli', 'print', Adm.prints, 'mgr'),
+    T('dati', 'Excel e backup', 'database', Adm.data, 'mgr'),
+    T('storico', 'Storico modifiche', 'history', Adm.history, 'mgr')] },
+  { id: 'impostazioni', icon: 'settings', label: 'Impostazioni', role: 'mgr', tabs: [
+    T('operatori', 'Operatori', 'group', Adm.operators, 'mgr'),
+    T('codici', 'Codici e regole', 'palette', Adm.codes, 'mgr'),
+    T('generali', 'Generali e sicurezza', 'tune', Adm.settings, 'admin'),
+    T('accessi', 'Accessi', 'devices', Adm.sessions, 'admin')] },
+  // fuori dal menu: si apre dalla campanella e dalle notifiche push
+  { id: 'notifiche', icon: 'notifications', label: 'Notifiche', role: 'me', view: Me.notifications, hidden: true }
 ];
-const BNAV = [['turni', 'radar', 'I miei turni'], ['calendario', 'calendar_month', 'Foglio'], ['richieste', 'assignment', 'Richieste'], ['ore', 'functions', 'Conteggi'], ['__menu', 'menu', 'Menu']];
+// Vecchi indirizzi (link interni, notifiche) → sezione/scheda
+const ALIAS = {
+  calendario: 'calendario/foglio', modifica: 'calendario/modifica', servizio: 'calendario/oggi', insieme: 'calendario/anno', cartellino: 'calendario/cartellino',
+  me: 'turni', richieste: 'richieste/mie', borsa: 'richieste/borsa', agenda: 'richieste/disponibilita', 'gestione-richieste': 'richieste/gestione',
+  ore: 'conteggi/ore', ferie: 'conteggi/ferie', reperibilita: 'conteggi/reperibilita', festivi: 'conteggi/festivi', statistiche: 'conteggi/statistiche', paghe: 'conteggi/paghe',
+  bacheca: 'squadra/bacheca', uscite: 'squadra/uscite', ruota: 'squadra/ruota',
+  dashboard: 'pannello/riepilogo', controlli: 'pannello/controlli', bozza: 'pannello/bozza',
+  stampe: 'documenti/stampe', dati: 'documenti/dati', storico: 'documenti/storico',
+  operatori: 'impostazioni/operatori', codici: 'impostazioni/codici', impostazioni: 'impostazioni/generali', accessi: 'impostazioni/accessi'
+};
+const BNAV = [['turni', 'radar', 'I miei turni'], ['calendario', 'calendar_month', 'Calendario'], ['richieste', 'assignment', 'Richieste'], ['conteggi', 'functions', 'Conteggi'], ['__menu', 'menu', 'Altro']];
 
 function canSee(item) {
   if (item.role === 'all' || !item.role) return true;
@@ -69,44 +88,64 @@ function canSee(item) {
   if (item.role === 'admin') return store.role === 'admin';
   return false;
 }
-const unreadCount = () => store.myNotif().filter(([, n]) => !n.read).length || '';
-const reqBadge = () => Object.values(store.requests).filter(r => r.status === 'collega' && r.peer === store.me).length || '';
-const mgrReqBadge = () => Object.values(store.requests).filter(r => r.status === 'attesa').length || '';
+const sectionOf = id => SECTIONS.find(n => n.id === id);
+const visibleTabs = sec => (sec.tabs || []).filter(canSee);
+const badgeOf = sec => sec.tabs ? visibleTabs(sec).reduce((a, t) => a + (+(t.badge ? t.badge() : 0) || 0), 0) || '' : (sec.badge ? sec.badge() : '');
+const homeFor = () => store.isManager() ? 'pannello/riepilogo' : (store.me ? 'turni' : 'calendario/foglio');
 
 // ── Navigazione ──
-let current = { id: null, cleanup: null };
+let current = { id: null, tab: null, cleanup: null };
 export function go(id, params = {}) {
+  const path = id.includes('/') ? id : (ALIAS[id] || id);
   const q = new URLSearchParams(params).toString();
-  const h = `#/${id}${q ? '?' + q : ''}`;
+  const h = `#/${path}${q ? '?' + q : ''}`;
   if (location.hash === h) route(); else location.hash = h;
 }
 function parseHash() {
-  const h = location.hash.replace(/^#\/?/, ''); const [id, q] = h.split('?');
-  return { id: id || '', params: Object.fromEntries(new URLSearchParams(q || '')) };
+  const h = location.hash.replace(/^#\/?/, ''); const [path, q] = h.split('?');
+  let [id, tab] = (path || '').split('/');
+  if (id && !sectionOf(id) && ALIAS[id]) [id, tab] = ALIAS[id].split('/');
+  return { id: id || '', tab: tab || '', params: Object.fromEntries(new URLSearchParams(q || '')) };
 }
 function route() {
-  let { id, params } = parseHash();
-  let item = NAV.find(n => n.id === id);
-  if (!item || !canSee(item)) {
-    if (item && item.role === 'mgr' || item && item.role === 'admin') { askLogin(item.role === 'admin' ? 'admin' : 'coord', () => go(id, params)); }
-    id = store.isManager() ? 'dashboard' : (store.me ? 'turni' : 'calendario'); item = NAV.find(n => n.id === id);
-    history.replaceState(null, '', `#/${id}`);
+  let { id, tab, params } = parseHash();
+  let sec = sectionOf(id);
+  if (!sec || sec.g || !canSee(sec)) {
+    if (sec && (sec.role === 'mgr' || sec.role === 'admin')) askLogin(sec.role === 'admin' ? 'admin' : 'coord', () => go(id + (tab ? '/' + tab : ''), params));
+    [id, tab] = homeFor().split('/'); sec = sectionOf(id);
+    history.replaceState(null, '', `#/${id}${tab ? '/' + tab : ''}`);
+  }
+  let t = null;
+  if (sec.tabs) {
+    const vis = visibleTabs(sec);
+    t = vis.find(x => x.id === tab);
+    if (!t) {
+      const wanted = sec.tabs.find(x => x.id === tab);
+      if (wanted && !canSee(wanted)) askLogin(wanted.role === 'admin' ? 'admin' : 'coord', () => go(`${id}/${tab}`, params));
+      t = vis[0]; history.replaceState(null, '', `#/${id}/${t.id}`);
+    }
   }
   if (current.cleanup) { try { current.cleanup(); } catch (e) { console.error(e); } }
-  current = { id, cleanup: null };
+  current = { id, tab: t && t.id, cleanup: null };
   document.body.classList.remove('side-open');
   renderNav();
   const main = $('#main'); main.scrollTop = 0; main.innerHTML = '';
   $('#top-actions-view').innerHTML = '';
-  setTitle(item.label, '');
+  setTitle(sec.label, '');
   try {
-    current.cleanup = item.view(main, params, ctx) || null;
+    if (!t) { current.cleanup = sec.view(main, params, ctx) || null; return; }
+    // schede della sezione: una sola barra in alto, poi la pagina scelta
+    const vis = visibleTabs(sec);
+    main.innerHTML = `<div class="hub ${t.full ? 'full' : ''}">${vis.length > 1 ? `<nav class="hub-tabs" aria-label="${esc(sec.label)}">${vis.map(x => { const b = x.badge ? x.badge() : ''; return `<a href="#/${id}/${x.id}" class="${x.id === t.id ? 'on' : ''}">${ic(x.icon)}<span>${esc(x.label)}</span>${b ? `<span class="badge">${b}</span>` : ''}</a>`; }).join('')}</nav>` : ''}<div class="hub-body"></div></div>`;
+    const sub = Object.assign({}, ctx, { setTitle: (title, crumb) => setTitle(sec.label, crumb || (title && title !== sec.label ? title : t.label)) });
+    setTitle(sec.label, t.label);
+    current.cleanup = t.view(main.querySelector('.hub-body'), params, sub) || null;
   } catch (e) {
     console.error(e);
     main.innerHTML = `<div class="page"><div class="note err">${ic('error')}<div><b>Errore nella pagina.</b><br>${esc(e.message)}</div></div></div>`;
   }
 }
-function setTitle(t, crumb) { $('#top-title h1').textContent = t; $('#top-title .crumb').textContent = crumb || ''; document.title = `${t} · ${store.config.app.title}`; }
+function setTitle(t, crumb) { $('#top-title h1').textContent = t; $('#top-title .crumb').textContent = crumb || ''; document.title = `${crumb || t} · ${store.config.app.title}`; }
 function setActions(html) { const el = $('#top-actions-view'); el.innerHTML = typeof html === 'string' ? html : ''; if (typeof html !== 'string' && html) el.appendChild(html); return el; }
 const ctx = { go, setTitle, setActions, askLogin, refreshNav: () => renderNav() };
 
@@ -125,9 +164,8 @@ function shell() {
       <button class="ibtn desk-only" id="btn-mini" aria-label="Riduci barra">${ic('left_panel_close')}</button>
       <div class="top-title" id="top-title"><h1></h1><span class="crumb"></span></div>
       <div class="top-actions"><span id="top-actions-view" class="row"></span>
-        <button class="prof-pill" id="prof-pill" title="Cambia reparto">${ic(store.profile.icon)}<span>${esc(store.profile.short)}</span>${ic('swap_horiz')}</button>
+        <button class="prof-pill mob-only" id="prof-pill" title="Cambia reparto">${ic(store.profile.icon)}<span>${esc(store.profile.short)}</span>${ic('swap_horiz')}</button>
         <span class="pill desk-only" id="net-pill"></span>
-        <button class="ibtn" id="btn-theme" title="Tema chiaro/scuro" aria-label="Tema">${ic('dark_mode')}</button>
         <button class="ibtn" id="btn-bell" title="Notifiche" aria-label="Notifiche">${ic('notifications')}<span class="badge" id="bell-badge"></span></button>
       </div>
     </header>
@@ -140,7 +178,6 @@ function shell() {
   $('#scrim').onclick = () => document.body.classList.remove('side-open');
   $('#btn-mini').onclick = () => { document.body.classList.toggle('side-mini'); store.lsSet('gt2:mini', document.body.classList.contains('side-mini')); };
   if (store.lsGet('gt2:mini')) document.body.classList.add('side-mini');
-  $('#btn-theme').onclick = e => themeMenu(e.currentTarget);
   $('#btn-bell').onclick = e => bellMenu(e.currentTarget);
   $('#who').onclick = e => whoMenu(e.currentTarget);
   $('#prof-sw').onclick = e => { const b = e.target.closest('[data-p]'); if (b) switchTo(b.dataset.p); };
@@ -151,28 +188,33 @@ function shell() {
 }
 function renderNav() {
   const nav = $('#side-nav'); if (!nav) return;
-  let html = '', pendingGroup = null;
-  for (const n of NAV) {
-    if (n.g) { pendingGroup = n; continue; }
+  let html = '', group = null;
+  for (const n of SECTIONS) {
+    if (n.g) { group = n; continue; }
+    if (n.hidden) continue;
     const visible = canSee(n);
-    const locked = !visible && (n.role === 'mgr' || n.role === 'admin');
-    if (!visible && !(locked && n.id === 'dashboard')) continue;
-    if (pendingGroup) { html += `<div class="nav-g">${ic(pendingGroup.icon)}<span>${esc(pendingGroup.g)}</span></div>`; pendingGroup = null; }
-    if (locked) { html += `<a class="nav-i locked" href="#/dashboard">${ic('lock')}<span>Area gestione</span><span class="ms lk">chevron_right</span></a>`; continue; }
-    const b = n.badge ? n.badge() : '';
-    html += `<a class="nav-i ${current.id === n.id ? 'on' : ''}" href="#/${n.id}" title="${esc(n.label)}">${ic(n.icon)}<span>${esc(n.label)}</span>${b !== '' && b ? `<span class="badge">${b}</span>` : ''}</a>`;
+    if (!visible) {
+      // area gestione chiusa: una sola voce con il lucchetto
+      if (n.id === 'pannello') { if (group) html += `<div class="nav-g"><span>${esc(group.g)}</span></div>`; group = null; html += `<a class="nav-i locked" href="#/pannello">${ic('lock')}<span>Area gestione</span><span class="ms lk">chevron_right</span></a>`; }
+      continue;
+    }
+    if (group) { html += `<div class="nav-g"><span>${esc(group.g)}</span></div>`; group = null; }
+    const b = badgeOf(n);
+    html += `<a class="nav-i ${current.id === n.id ? 'on' : ''}" href="#/${n.id}" title="${esc(n.label)}">${ic(n.icon)}<span>${esc(n.label)}</span>${b ? `<span class="badge">${b}</span>` : ''}</a>`;
   }
   nav.innerHTML = html;
   const o = store.op(store.me);
   $('#who').innerHTML = `${store.isManager() ? `<span class="av" style="background:var(--brand)">${ic(store.role === 'admin' ? 'shield_person' : 'supervisor_account')}</span>` : (o ? avatar(o.id) : `<span class="av" style="background:#475569">${ic('person')}</span>`)}
-    <span class="who-txt grow"><b>${esc(store.whoName())}</b><small>${store.isManager() ? (o ? 'e ' + o.name + ' ' + cap1(o.surname) : 'Area gestione attiva') : (o ? 'Operatore' : 'Tocca per scegliere chi sei')}</small></span>${ic('unfold_more')}`;
+    <span class="who-txt grow"><b>${esc(store.whoName())}</b><small>${store.isManager() ? (o ? 'e ' + (o.name || '') + ' ' + cap1(o.surname) : 'Area gestione attiva') : (o ? 'Operatore' : 'Tocca per scegliere chi sei')}</small></span>${ic('unfold_more')}`;
   const bn = $('#bnav');
-  bn.innerHTML = BNAV.map(([id, icon, lb]) => {
-    const it = NAV.find(n => n.id === id); const b = it && it.badge ? it.badge() : '';
+  bn.innerHTML = BNAV.filter(([id]) => id === '__menu' || canSee(sectionOf(id))).map(([id, icon, lb]) => {
+    const sec = sectionOf(id); const b = sec ? badgeOf(sec) : '';
     return `<button data-id="${id}" class="${current.id === id ? 'on' : ''}">${ic(icon)}<span>${lb}</span>${b ? `<span class="badge">${b}</span>` : ''}</button>`;
   }).join('');
   bn.onclick = e => { const b = e.target.closest('button'); if (!b) return; vibrate(); if (b.dataset.id === '__menu') document.body.classList.add('side-open'); else go(b.dataset.id); };
   const u = unreadCount(); $('#bell-badge').textContent = u || '';
+  // le schede aggiornano i contatori senza ridisegnare la pagina
+  document.querySelectorAll('.hub-tabs a').forEach(a => { const tab = a.getAttribute('href').split('/')[2]; const sec = sectionOf(current.id); const t = sec && sec.tabs && sec.tabs.find(x => x.id === tab); if (!t || !t.badge) return; const v = t.badge(); let bd = a.querySelector('.badge'); if (v && !bd) { bd = document.createElement('span'); bd.className = 'badge'; a.appendChild(bd); } if (bd) bd.textContent = v || ''; });
   renderNet();
 }
 function renderNet() {
@@ -200,7 +242,8 @@ function whoMenu(a) {
   items.push({ icon: 'switch_account', label: store.me ? 'Cambia operatore' : 'Scegli chi sei', run: () => gate(true) });
   if (store.isManager()) items.push({ icon: 'logout', label: 'Esci dall’area gestione', run: () => { store.setAuth(null); toast('Area gestione chiusa'); go('calendario'); } });
   else { items.push({ icon: 'supervisor_account', label: 'Accedi come coordinatore', run: () => askLogin('coord', () => go('dashboard')) }); items.push({ icon: 'shield_person', label: 'Accedi come amministratore', run: () => askLogin('admin', () => go('dashboard')) }); }
-  items.push('-'); items.push({ icon: 'install_mobile', label: 'Installa sul telefono', run: installHelp });
+  items.push('-'); items.push({ icon: 'contrast', label: 'Tema: chiaro, scuro o automatico', run: () => setTimeout(() => themeMenu(a), 0) });
+  items.push({ icon: 'install_mobile', label: 'Installa sul telefono', run: installHelp });
   items.push({ icon: 'info', label: `Versione ${VERSION} · ${store.adapter.kind === 'cloud' ? 'cloud' : 'locale'}`, run: aboutBox });
   popover(a, items, { align: 'left' });
 }
@@ -213,7 +256,7 @@ function bellMenu(a) {
   const list = store.myNotif().slice(0, 8);
   const html = list.length ? list.map(([id, n]) => `<div class="list-i" style="padding:10px 8px;${n.read ? 'opacity:.6' : ''}">${ic(n.kind === 'turni' ? 'event_repeat' : n.kind === 'richiesta' ? 'assignment' : 'notifications')}<div class="grow"><b style="font-size:13px">${esc(n.title)}</b><div class="small muted">${esc(n.body || (n.dates ? n.dates.map(d => fmtDate(d)).slice(0, 4).join(', ') + (n.dates.length > 4 ? '…' : '') : ''))}</div></div><span class="tiny muted nowrap">${relTime(n.ts)}</span></div>`).join('')
     : `<div class="empty" style="padding:24px">${ic('notifications_off')}Nessuna notifica</div>`;
-  const p = popover(a, [{ html: `<div style="width:min(360px,86vw);max-height:60vh;overflow:auto">${html}</div>` }, '-', { icon: 'done_all', label: 'Segna tutte come lette', run: () => store.markRead(list.filter(([, n]) => !n.read).map(([id]) => id)) }, { icon: notifState() === 'granted' ? 'notifications_active' : 'add_alert', label: notifState() === 'granted' ? 'Notifiche sul telefono: attive' : 'Attiva le notifiche sul telefono', run: () => askNotifications() }, { icon: 'open_in_new', label: 'Apri tutte le notifiche', run: () => go('notifiche') }]);
+  const p = popover(a, [{ html: `<div style="width:min(360px,86vw);max-height:60vh;overflow:auto">${html}</div>` }, '-', { icon: 'done_all', label: 'Segna tutte come lette', run: () => store.markRead(list.filter(([, n]) => !n.read).map(([id]) => id)) }, { icon: notifState() === 'granted' ? 'notifications_active' : 'add_alert', label: notifState() === 'granted' ? 'Notifiche sul telefono: attive' : 'Attiva le notifiche sul telefono', run: () => askNotifications() }, { icon: 'open_in_new', label: 'Tutte le notifiche', run: () => go('notifiche') }]);
   return p;
 }
 export async function askNotifications() {
@@ -403,7 +446,7 @@ async function start() {
     if (['requests', 'notif', 'role', 'me', 'config', 'net', 'cells', 'edit'].includes(what)) renderNav();
     if (what === 'role' || what === 'me') route();
   });
-  if (!location.hash) history.replaceState(null, '', store.isManager() ? '#/dashboard' : store.me ? '#/turni' : '#/calendario');
+  if (!location.hash) history.replaceState(null, '', '#/' + homeFor());
   route();
   if (!store.me && !store.isManager() && !store.lsGet(`${store.ns}:guest`)) gate();
   else afterLogin();

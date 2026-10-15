@@ -6,7 +6,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 import { store } from './store.js';
 import { loadScript, addDays, fmtDate, WD, dow, hm, rangeDays, download, monthDays } from './util.js';
-import { repDefault, repOf, repBands, weeks, yearStats, workedMin, creditMin, absInfo } from './calc.js';
+import { repDefault, repOf, repBands, weeks, yearStats, workedMin, creditMin, absInfo, shifts } from './calc.js';
 
 const XLSX_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
 const JSZIP_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
@@ -94,6 +94,8 @@ export async function parseWorkbook(file) {
 }
 
 const ABS_MAP = { F: 'f', V: 'v', PN: 'pn', NL: 'nl', NG: 'ng', K: 'k', P: 'p', M: 'm', Z: 'Z', z: 'Z', C: 'c', E: 'e', L: 'l', S: 's', A: 'a', X: 'x' };
+// codici di una lettera del file esportato (infermieri.xlsx) → codici del file principale
+const SHORT = { M: 'MAT', P: 'POM', N: 'NOTT', S: 'SM', m: 'matt', p: 'pome', r: 'ripo', 'm/R': 'matt/R', 'p/R': 'pome/R', 'S/R': 'SM/R' };
 function parseHorizontal(rows, sheet) {
   let year = store.config.year; const y0 = rows[0] && rows[0][0]; if (typeof y0 === 'number' && y0 > 2000) year = y0;
   const nDays = (rows[1] || []).length - 1;
@@ -101,13 +103,13 @@ function parseHorizontal(rows, sheet) {
   for (let r = 2; r < rows.length; r++) {
     const o = findOp(rows[r][0]); if (!o || ops.some(x => x.op === o.id)) continue;
     // solo le righe "persona" (sotto c'è la riga delle assenze)
-    if (!(rows[r] || []).slice(1, 40).some(v => /^(M|P|N|S|R|-|m|p|r|M\/R)$/.test(norm(v)))) continue;
+    if (!(rows[r] || []).slice(1, 40).some(v => /^(M|P|N|S|R|-|m|p|r|M\/R|MAT|POM|NOTT|SM)$/.test(norm(v)))) continue;
     ops.push({ op: o.id, c: r, name: norm(rows[r][0]) });
     for (let i = 0; i < nDays; i++) {
       const d = addDays(`${year}-01-01`, i); const sv = norm(rows[r][i + 1]); const a = (rows[r + 1] || [])[i + 1];
       const cell = {};
       if (/^(gravidanza|maternit)/i.test(sv)) cell.a = 'gr';
-      else if (sv && sv !== '-' && sv !== '0') cell.s = sv;
+      else if (sv && sv !== '-' && sv !== '0') cell.s = shifts().has(sv) ? sv : (SHORT[sv] || sv);
       if (typeof a === 'number' && a > 0) cell.ph = a;
       else if (norm(a) && norm(a) !== '0') { const av = norm(a); const mr = av.match(/^r(\d)$/); if (mr) { cell.a = 'r'; cell.ph = +mr[1]; } else cell.a = ABS_MAP[av] || av; }
       cells[o.id + '|' + d] = Object.keys(cell).length ? cell : null; n++;
