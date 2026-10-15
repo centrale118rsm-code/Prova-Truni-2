@@ -63,7 +63,7 @@ test('infermieri · codici riconosciuti, squadre da 3, ore accreditate a 6 ore',
   assert.ok(full > 340, `giorni con le squadre complete: ${full}`);
   assert.equal(calc.creditMin({ a: 'f' }, '2026-03-10'), 360);   // martedì: 36 h ÷ 6
   assert.equal(calc.creditMin({ a: 'f' }, '2026-03-08'), 0);     // domenica
-  assert.equal(calc.cycle().join(''), 'PMNSR');
+  assert.equal(calc.cycle().join(' '), 'POM MAT NOTT SM R');
 });
 
 test('bozza automatica · copre tutte le fasce di un mese vuoto', () => {
